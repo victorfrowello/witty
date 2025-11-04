@@ -74,4 +74,4 @@ Notes:
 
 ---
 
-This public design spec intentionally omits internal development tooling, prompts, and other internal practices. 
+This public design spec intentionally omits internal development tooling other non-essential internal information. 
