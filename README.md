@@ -142,8 +142,7 @@ witty/
 │
 ├── .env                      # Environment variables (e.g., API keys)
 ├── README.md                 # Project overview and usage
-├── LICENSE                   # License file
-└── CODEOWNERS                # Ownership and review rules
+└── LICENSE                   # License file
 ```
 ---
 
