@@ -67,4 +67,3 @@ Replace the command above with the real CLI entrypoint once implemented.
 
 ---
 
-If you want this document added to the repo as `docs/DevPlan_published.md` or replace `docs/DevPlan.md`, tell me and I will stage the change (I will not push until you confirm).
