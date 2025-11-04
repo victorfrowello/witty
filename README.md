@@ -148,6 +148,6 @@ witty/
 
 ##  Status
 
-This is an early-stage prototype currently under active development. Contributions, feedback, and questions welcome.
+This is an early-stage prototype currently under active development. Contributions, feedback, and questions are welcome.
 
 ---
