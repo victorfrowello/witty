@@ -93,7 +93,7 @@ Every pipeline stage returns a ModuleResult:
 ---
 
 ##  Project Structure
-
+```
 witty/
 ├── src/                      # Core source code
 │   ├── adapters/             # LLMAdapter implementations and registry
@@ -144,7 +144,7 @@ witty/
 ├── README.md                 # Project overview and usage
 ├── LICENSE                   # License file
 └── CODEOWNERS                # Ownership and review rules
-
+```
 ---
 
 ##  Status
