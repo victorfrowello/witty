@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/PreprocessingResult.json",
+  "title": "PreprocessingResult",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "description": "Optional id for this preprocessing result" },
+    "normalized_text": { "type": "string" },
+    "sentences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "text": { "type": "string" },
+          "origin_spans": { "type": "array", "items": { "$ref": "OriginSpan.json" } }
+        },
+        "required": ["id", "text"]
+      }
+    },
+    "tokens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "text": { "type": "string" },
+          "lemma": { "type": ["string", "null"] },
+          "pos": { "type": ["string", "null"] },
+          "annotations": { "type": "object", "additionalProperties": true }
+        },
+        "required": ["id", "text"]
+      }
+    }
+  },
+  "required": ["normalized_text"]
+}

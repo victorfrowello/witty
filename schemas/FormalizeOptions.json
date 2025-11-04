@@ -1,42 +1,110 @@
 {
-  "$id": "https://huggingface.co/VictorRowello/witty/schemas/FormalizeOptions.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/ProvenanceRecord.json",
+  "title": "ProvenanceRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "description": "Deterministic id (hash-based)" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "module_id": { "type": "string" },
+    "module_version": { "type": "string" },
+    "adapter_id": { "type": ["string", "null"] },
+    "prompt_template_id": { "type": ["string", "null"] },
+    "adapter_request_id": { "type": ["string", "null"] },
+    "origin_spans": {
+      "type": "array",
+      "items": { "$ref": "OriginSpan.json" },
+      "default": []
+    },
+    "enrichment_sources": {
+      "type": "array",
+      "items": { "$ref": "Document.json" },
+      "default": []
+    },
+    "confidence": { "type": ["number", "null"], "minimum": 0.0, "maximum": 1.0 },
+    "ambiguity_flags": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "reduction_rationale": { "type": ["string", "null"] },
+    "event_log": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "event": { "type": "string" },
+          "details": { "type": ["string", "object", "null"] }
+        },
+        "required": ["timestamp", "event"]
+      },
+      "default": []
+    }
+  },
+  "required": ["id", "created_at", "module_id", "module_version"]
+}{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/FormalizeOptions.json",
   "title": "FormalizeOptions",
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "retrieval_enabled": { "type": "boolean", "default": false },
-    "top_k_symbolizations": { "type": "integer", "minimum": 1, "default": 1 },
-    "llm_provider": {
-      "oneOf": [
-        { "type": "string" },
-        {
+    "request_id": { "type": "string" },
+    "reproducible_mode": { "type": "boolean", "default": false },
+    "verbosity": { "type": "string", "enum": ["compact", "verbose"], "default": "compact" },
+    "request_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
           "type": "object",
           "properties": {
             "adapter_id": { "type": "string" },
-            "version": { "type": "string" }
+            "model": { "type": "string" },
+            "model_version": { "type": "string" },
+            "mode": { "type": "string", "enum": ["live", "mock", "replay"] }
           },
-          "required": ["adapter_id"],
+          "required": ["adapter_id"]
+        },
+        "use_llm_for": {
+          "type": "object",
+          "properties": {
+            "concision": { "type": "boolean", "default": true },
+            "symbolizer": { "type": "boolean", "default": false },
+            "enrichment": { "type": "boolean", "default": false },
+            "modal_detection": { "type": "boolean", "default": false }
+          },
+          "additionalProperties": false
+        },
+        "prompt_overrides": {
+          "type": "object",
           "additionalProperties": true
         }
-      ]
+      },
+      "required": ["provider"]
     },
-    "verbosity": {
-      "type": "string",
-      "enum": ["compact", "verbose"],
-      "default": "compact"
+    "runtime_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "privacy_mode": { "type": "string", "enum": ["default", "strict"], "default": "default" },
+        "llm_conf_threshold": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.7 },
+        "origin_spans_coverage_threshold": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.8 },
+        "max_retries_per_tool": { "type": "integer", "minimum": 0, "default": 1 },
+        "max_tokens": { "type": "integer", "minimum": 1, "default": 2048 },
+        "cost_cap_usd": { "type": ["number", "null"] },
+        "allow_modal_advanced_cnf": { "type": "boolean", "default": false },
+        "deterministic_accept_threshold": { "type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.8 }
+      }
     },
-    "quantifier_reduction_detail": {
-      "type": "string",
-      "enum": ["concise", "detailed"],
-      "default": "detailed"
-    },
-    "allow_modal_advanced_cnf": { "type": "boolean", "default": false },
-    "privacy_mode": {
-      "type": "string",
-      "enum": ["default", "strict"],
-      "default": "default"
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provenance_short_tag": { "type": "string" },
+        "experiment_id": { "type": "string" },
+        "user_annotations": { "type": "string" }
+      }
     }
   },
-  "required": ["llm_provider"]
+  "required": ["request_intent"]
 }

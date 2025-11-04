@@ -1,6 +1,6 @@
 {
-  "$id": "https://huggingface.co/VictorRowello/witty/schemas/FormalizationResult.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/FormalizationResult.json",
   "title": "FormalizationResult",
   "type": "object",
   "additionalProperties": false,
@@ -10,17 +10,8 @@
     "canonical_text": { "type": "string" },
     "enrichment_sources": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "source_id": { "type": "string" },
-          "url": { "type": "string", "format": "uri" },
-          "excerpt": { "type": "string" },
-          "retrieval_score": { "type": "number" }
-        },
-        "required": ["source_id"]
-      }
+      "items": { "$ref": "Document.json" },
+      "default": []
     },
     "atomic_claims": {
       "type": "array",
@@ -30,17 +21,11 @@
         "properties": {
           "id": { "type": "string" },
           "text": { "type": "string" },
-          "provenance": { "$ref": "https://huggingface.co/VictorRowello/witty/schemas/ProvenanceRecord.json" },
-          "tags": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "ambiguity_score": { "type": "number", "minimum": 0, "maximum": 1 },
-          "modal_tags": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "reduction_rationale": { "type": "string" }
+          "provenance": { "$ref": "ProvenanceRecord.json" },
+          "tags": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "ambiguity_score": { "type": ["number", "null"], "minimum": 0.0, "maximum": 1.0 },
+          "modal_tags": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "reduction_rationale": { "type": ["string", "null"] }
         },
         "required": ["id", "text", "provenance"]
       }
@@ -49,45 +34,23 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "additionalProperties": false,
         "properties": {
           "atomic_claim_id": { "type": "string" },
-          "notes": { "type": "string" },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": true
-          }
+          "notes": { "type": ["string", "null"] },
+          "metadata": { "type": ["object", "null"] }
         },
         "required": ["atomic_claim_id"]
-      }
+      },
+      "default": {}
     },
     "logical_form_candidates": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "notation": { "type": "string" },
-          "logical_ast": {
-            "type": "object",
-            "description": "JSON AST representing the formula"
-          },
-          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-          "warnings": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "provenance": { "$ref": "https://huggingface.co/VictorRowello/witty/schemas/ProvenanceRecord.json" }
-        },
-        "required": ["notation", "logical_ast"]
-      }
+      "items": { "$ref": "SymbolizerResult.json#/properties/logical_form_candidates/items" },
+      "default": []
     },
-    "chosen_logical_form": { "type": "string" },
-    "cnf": { "type": "string" },
-    "cnf_clauses": {
-      "type": "array",
-      "items": { "type": "string" }
-    },
+    "chosen_logical_form": { "type": ["string", "null"] },
+    "cnf": { "type": ["string", "null"] },
+    "cnf_clauses": { "type": "array", "items": { "type": "string" }, "default": [] },
     "modal_metadata": {
       "type": "object",
       "additionalProperties": false,
@@ -97,15 +60,13 @@
         "recommended_frame": { "type": ["string", "null"] }
       }
     },
-    "warnings": {
-      "type": "array",
-      "items": { "type": "string" }
-    },
-    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "warnings": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "confidence": { "type": ["number", "null"], "minimum": 0.0, "maximum": 1.0 },
     "provenance": {
       "type": "array",
-      "items": { "$ref": "https://huggingface.co/VictorRowello/witty/schemas/ProvenanceRecord.json" }
+      "items": { "$ref": "ProvenanceRecord.json" },
+      "default": []
     }
   },
-  "required": ["original_text", "canonical_text", "atomic_claims", "legend", "logical_form_candidates"]
+  "required": ["request_id", "original_text", "canonical_text", "atomic_claims"]
 }

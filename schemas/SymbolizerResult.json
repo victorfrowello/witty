@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/SymbolizerResult.json",
+  "title": "SymbolizerResult",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string" },
+    "legend": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "atomic_claim_id": { "type": "string" },
+          "notes": { "type": ["string", "null"] },
+          "metadata": { "type": ["object", "null"] }
+        },
+        "required": ["atomic_claim_id"]
+      },
+      "default": {}
+    },
+    "logical_form_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "notation": { "type": "string" },
+          "logical_ast": { "type": "object" },
+          "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "warnings": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "provenance": { "$ref": "ProvenanceRecord.json" }
+        },
+        "required": ["id", "notation", "logical_ast", "confidence"]
+      }
+    }
+  },
+  "required": ["id", "legend", "logical_form_candidates"]
+}

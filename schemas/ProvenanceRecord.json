@@ -1,51 +1,30 @@
 {
-  "$id": "https://huggingface.co/VictorRowello/witty/schemas/ProvenanceRecord.json",
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/ProvenanceRecord.json",
   "title": "ProvenanceRecord",
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "id": { "type": "string", "description": "Deterministic provenance id" },
+    "id": { "type": "string", "description": "Deterministic id (hash-based)" },
     "created_at": { "type": "string", "format": "date-time" },
     "module_id": { "type": "string" },
     "module_version": { "type": "string" },
-    "adapter_id": { "type": "string" },
-    "prompt_template_id": { "type": "string" },
+    "adapter_id": { "type": ["string", "null"] },
+    "prompt_template_id": { "type": ["string", "null"] },
+    "adapter_request_id": { "type": ["string", "null"] },
     "origin_spans": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "source": { "type": "string" },
-          "start_char": { "type": "integer", "minimum": 0 },
-          "end_char": { "type": "integer", "minimum": 0 },
-          "excerpt": { "type": "string" }
-        },
-        "required": ["source", "start_char", "end_char"]
-      }
+      "items": { "$ref": "OriginSpan.json" },
+      "default": []
     },
     "enrichment_sources": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "source_id": { "type": "string" },
-          "url": { "type": "string", "format": "uri" },
-          "snippet": { "type": "string" },
-          "retrieval_score": { "type": "number" }
-        },
-        "required": ["source_id"]
-      }
+      "items": { "$ref": "Document.json" },
+      "default": []
     },
-    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-    "ambiguity_flags": {
-      "type": "array",
-      "items": { "type": "string" }
-    },
-    "reduction_rationale": { "type": "string" },
-    "notes": { "type": "string" },
+    "confidence": { "type": ["number", "null"], "minimum": 0.0, "maximum": 1.0 },
+    "ambiguity_flags": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "reduction_rationale": { "type": ["string", "null"] },
     "event_log": {
       "type": "array",
       "items": {
@@ -54,11 +33,12 @@
         "properties": {
           "timestamp": { "type": "string", "format": "date-time" },
           "event": { "type": "string" },
-          "detail": { "type": "string" }
+          "details": { "type": ["string", "object", "null"] }
         },
         "required": ["timestamp", "event"]
-      }
+      },
+      "default": []
     }
   },
-  "required": ["id", "created_at", "module_id"]
+  "required": ["id", "created_at", "module_id", "module_version"]
 }

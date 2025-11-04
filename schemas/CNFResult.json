@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/CNFResult.json",
+  "title": "CNFResult",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string" },
+    "cnf": { "type": "string" },
+    "cnf_clauses": { "type": "array", "items": { "type": "string" } },
+    "clause_to_legend_map": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "provenance": { "$ref": "ProvenanceRecord.json" }
+  },
+  "required": ["id", "cnf", "cnf_clauses"]
+}

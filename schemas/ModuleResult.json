@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/ModuleResult.json",
+  "title": "ModuleResult",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "payload": { "type": ["object", "array", "null"], "description": "Module-specific payload (must be JSON-serializable)" },
+    "provenance_record": { "$ref": "ProvenanceRecord.json" },
+    "confidence": { "type": ["number", "null"], "minimum": 0.0, "maximum": 1.0 },
+    "warnings": { "type": "array", "items": { "type": "string" }, "default": [] }
+  },
+  "required": ["payload", "provenance_record"]
+}
