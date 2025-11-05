@@ -1,4 +1,4 @@
-# Witty — Epistemic Formalization Engine
+# Witty v0.1 — Epistemic Formalization Engine
 
 Witty converts plain‑English declarative statements and long‑form arguments into machine‑readable formalizations that expose the minimal atomic claims and the inferences required for the input to be true. This README is a concise, high-level primer on what the system produces, the data pipeline, where LLMs are used versus deterministic code, and how provenance and reproducibility are handled.
 
