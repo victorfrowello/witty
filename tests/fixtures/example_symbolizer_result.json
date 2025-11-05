@@ -1,0 +1,31 @@
+{
+  "legend": {
+    "P1": "Alice owns a red car",
+    "P2": "Alice prefers driving"
+  },
+  "logical_form_candidates": [
+    {
+      "ast": {
+        "type": "IMPLIES",
+        "left": {"type": "ATOM", "symbol": "P1"},
+        "right": {"type": "ATOM", "symbol": "P2"}
+      },
+      "notation": "P1 → P2",
+      "confidence": 0.95
+    },
+    {
+      "ast": {
+        "type": "OR",
+        "left": {
+          "type": "NOT",
+          "operand": {"type": "ATOM", "symbol": "P1"}
+        },
+        "right": {"type": "ATOM", "symbol": "P2"}
+      },
+      "notation": "¬P1 ∨ P2",
+      "confidence": 0.90
+    }
+  ],
+  "chosen_index": 0,
+  "confidence": 0.95
+}

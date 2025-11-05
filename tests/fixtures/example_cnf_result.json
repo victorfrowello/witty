@@ -1,0 +1,17 @@
+{
+  "cnf": "¬P1 ∨ P2",
+  "cnf_clauses": [
+    ["¬P1", "P2"]
+  ],
+  "legend": {
+    "P1": "Alice owns a red car",
+    "P2": "Alice prefers driving"
+  },
+  "modal_metadata": {},
+  "transformations": [
+    "Original: P1 → P2",
+    "Remove implication: ¬P1 ∨ P2",
+    "Already in CNF"
+  ],
+  "confidence": 1.0
+}

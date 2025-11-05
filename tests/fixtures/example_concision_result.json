@@ -1,0 +1,22 @@
+{
+  "canonical_text": "If Alice owns a red car, then Alice prefers driving.",
+  "atomic_candidates": [
+    {
+      "text": "Alice owns a red car",
+      "symbol": null,
+      "origin_spans": [[3, 24]],
+      "modal_context": null,
+      "provenance": null
+    },
+    {
+      "text": "Alice prefers driving",
+      "symbol": null,
+      "origin_spans": [[31, 52]],
+      "modal_context": null,
+      "provenance": null
+    }
+  ],
+  "confidence": 0.95,
+  "explanations": "The input contains a conditional statement with two atomic claims: the antecedent about car ownership and the consequent about driving preference.",
+  "error": null
+}

@@ -1,0 +1,32 @@
+{
+  "description": "Mock Adapter Response Fixtures",
+  "purpose": "These JSON files demonstrate the expected output format from each pipeline stage when using the Mock adapter. They serve as both documentation and test fixtures for validating pipeline behavior.",
+  "fixtures": [
+    {
+      "file": "example_concision_result.json",
+      "stage": "Concision",
+      "description": "Result from the concision stage showing canonical text and extracted atomic claims with origin spans."
+    },
+    {
+      "file": "example_symbolizer_result.json",
+      "stage": "Symbolization",
+      "description": "Result from the symbolizer showing symbol assignments, legend, and logical form candidates."
+    },
+    {
+      "file": "example_cnf_result.json",
+      "stage": "CNF Transformation",
+      "description": "Result from CNF transformation showing the conjunctive normal form representation and transformation steps."
+    },
+    {
+      "file": "example_formalization_result.json",
+      "stage": "Complete Pipeline",
+      "description": "Final FormalizationResult showing all components assembled from the complete pipeline execution."
+    }
+  ],
+  "usage": "These fixtures can be used in unit tests to validate that each pipeline stage produces correctly structured output that conforms to the expected schema.",
+  "notes": [
+    "All fixtures use reproducible mode defaults",
+    "Origin spans are 0-indexed character offsets into the original text",
+    "Provenance records are omitted or null in these simplified examples for clarity"
+  ]
+}

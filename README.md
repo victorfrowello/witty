@@ -146,7 +146,133 @@ witty/
 ```
 ---
 
+## Sprint 1 Quickstart (Deterministic Mock Mode)
+
+### Installation
+
+1. **Clone the repository**:
+```powershell
+git clone <repository-url>
+cd witty-1
+```
+
+2. **Create and activate a virtual environment** (recommended):
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
+3. **Install dependencies**:
+```powershell
+pip install -r requirements.txt
+```
+
+### Basic Usage
+
+The CLI currently operates in **deterministic mock mode** for Sprint 1, using pre-defined responses without requiring any API keys or network calls.
+
+**Run a simple example**:
+```powershell
+python -m src.cli --input examples/simple_conditional.txt --output result.json --reproducible
+```
+
+**View the output**:
+```powershell
+cat result.json
+```
+
+### CLI Options
+
+```
+--input INPUT          Input text file (required)
+--output OUTPUT        Output JSON file (required)
+--config CONFIG        Optional YAML configuration file
+--env ENV              Path to .env file (default: .env)
+--verbosity LEVEL      Logging level: 'normal' or 'debug'
+--reproducible         Enable reproducible mode (deterministic behavior)
+```
+
+### Example Workflow
+
+```powershell
+# Process a simple conditional statement
+python -m src.cli `
+  --input examples/simple_conditional.txt `
+  --output outputs/simple.json `
+  --reproducible `
+  --verbosity debug
+
+# Process a modal logic example
+python -m src.cli `
+  --input examples/modal_necessity.txt `
+  --output outputs/modal.json `
+  --reproducible
+```
+
+### What You Get
+
+The output `FormalizationResult` JSON contains:
+- **canonical_text**: Cleaned/normalized input
+- **atomic_claims**: Extracted minimal claims with symbols (P1, P2, ...)
+- **legend**: Mapping from symbols to natural language
+- **logical_form_candidates**: Proposed logical representations
+- **chosen_logical_form**: Selected logical form
+- **cnf**: Conjunctive Normal Form representation
+- **cnf_clauses**: CNF broken into clauses
+- **provenance**: Complete tracking of all transformations
+- **confidence**: Overall confidence score
+- **warnings**: Any issues encountered
+
+### Running Tests
+
+```powershell
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+
+# Run specific test module
+pytest tests/test_orchestrator.py -v
+```
+
+### Current Limitations (Sprint 1)
+
+- **No live LLM integration**: All responses are deterministic mock data
+- **Limited pipeline stages**: Core stages implemented, some advanced features pending
+- **English only**: Multi-language support planned for future sprints
+
+### Example Output Structure
+
+```json
+{
+  "request_id": "req_abc123",
+  "original_text": "If Alice owns a red car, then Alice prefers driving.",
+  "canonical_text": "If Alice owns a red car, then Alice prefers driving.",
+  "atomic_claims": [
+    {
+      "text": "Alice owns a red car",
+      "symbol": "P1",
+      "origin_spans": [[3, 24]]
+    },
+    {
+      "text": "Alice prefers driving",
+      "symbol": "P2",
+      "origin_spans": [[31, 52]]
+    }
+  ],
+  "legend": {
+    "P1": "Alice owns a red car",
+    "P2": "Alice prefers driving"
+  },
+  "cnf": "¬P1 ∨ P2",
+  "confidence": 0.95
+}
+```
+
 ##  Status
+
+**Sprint 1 Complete**: Core type system, mock adapter, and deterministic pipeline operational.
 
 This is an early-stage prototype currently under active development. Contributions, feedback, and questions are welcome.
 

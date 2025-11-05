@@ -1,0 +1,1 @@
+The server crashed because the database ran out of memory, and this caused the website to go offline.
