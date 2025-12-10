@@ -66,4 +66,3 @@ Replace the command above with the real CLI entrypoint once implemented.
 - File issues for bugs or feature requests; open issues for major design proposals.
 
 ---
-

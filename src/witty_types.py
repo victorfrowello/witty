@@ -143,20 +143,73 @@ class ConcisionResult(BaseModel):
     Result from the concision stage of the pipeline.
     
     The concision stage extracts atomic claims from preprocessed text and
-    produces a canonical simplified representation.
+    produces a canonical simplified representation. It decomposes logical
+    structures (implications, conjunctions) and records the relationships
+    in structural metadata.
     
     Attributes:
         canonical_text: Simplified, canonical version of the input text
         atomic_candidates: List of extracted atomic claims
+        structural_metadata: Metadata about logical connectives and relationships
         confidence: Overall confidence in the concision result
         explanations: Optional human-readable explanation of the concision
         error: Optional error message if concision failed
     """
     canonical_text: str
     atomic_candidates: List[AtomicClaim]
+    structural_metadata: Dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(1.0, ge=0.0, le=1.0)
     explanations: Optional[str] = None
     error: Optional[str] = None
+
+
+class WorldResult(BaseModel):
+    """
+    Result from the world construction stage.
+    
+    This stage expands presuppositions and reduces quantifiers to propositional
+    placeholders, preparing the logical structure for symbolization and CNF
+    transformation.
+    
+    Attributes:
+        atomic_claims: Updated list of atomic claims (may include new claims
+                      from quantifier reduction and presupposition expansion)
+        reduction_metadata: Metadata about quantifier reductions performed
+        presupposition_metadata: Metadata about presuppositions expanded
+        quantifier_map: Mapping from quantified statements to their reductions
+        confidence: Overall confidence in the world construction
+        warnings: Any warnings encountered during processing
+    """
+    atomic_claims: List[AtomicClaim]
+    reduction_metadata: Dict[str, Any] = Field(default_factory=dict)
+    presupposition_metadata: Dict[str, Any] = Field(default_factory=dict)
+    quantifier_map: Dict[str, str] = Field(default_factory=dict)
+    confidence: float = Field(1.0, ge=0.0, le=1.0)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class SymbolizerResult(BaseModel):
+    """
+    Result from the symbolization stage.
+    
+    This stage assigns deterministic propositional symbols (P1, P2, ...) to
+    atomic claims and builds a legend mapping symbols to their natural language
+    meanings. Symbols are assigned in deterministic order based on origin spans
+    to ensure reproducibility.
+    
+    Attributes:
+        legend: Mapping from symbols (P1, P2, ...) to claim text
+        atomic_claims: List of atomic claims with symbols assigned
+        extended_legend: Optional detailed metadata per symbol including
+                        origin spans, provenance IDs, and confidence scores
+        confidence: Overall confidence in the symbolization result
+        warnings: Any warnings encountered during processing
+    """
+    legend: Dict[str, str]
+    atomic_claims: List[AtomicClaim]
+    extended_legend: Optional[Dict[str, Dict[str, Any]]] = None
+    confidence: float = Field(1.0, ge=0.0, le=1.0)
+    warnings: List[str] = Field(default_factory=list)
 
 
 class FormalizationResult(BaseModel):

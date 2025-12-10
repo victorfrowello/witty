@@ -180,7 +180,7 @@ The CLI produces a JSON file with this structure:
   "request_id": "req_...",           // Unique request identifier
   "original_text": "...",             // Your input verbatim
   "canonical_text": "...",            // Cleaned/normalized version
-  "atomic_claims": [...],             // Extracted minimal claims
+  "atomic_claims": [...],              // Extracted minimal claims
   "legend": {...},                    // Symbol → text mapping
   "logical_form_candidates": [...],   // Proposed logical forms
   "chosen_logical_form": {...},       // Selected form

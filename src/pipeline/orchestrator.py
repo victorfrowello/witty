@@ -13,6 +13,8 @@ Pipeline Stages:
 
 All stages produce ModuleResult objects with comprehensive ProvenanceRecord
 tracking for transparency and debugging.
+
+Author: Victor Rowello
 """
 from __future__ import annotations
 
@@ -20,7 +22,7 @@ import hashlib
 import datetime
 from typing import Any, Dict, Optional
 
-from src.witty.types import (
+from src.witty_types import (
     ModuleResult,
     ProvenanceRecord,
     FormalizationResult,
@@ -362,16 +364,21 @@ def formalize_statement(
     options: FormalizeOptions
 ) -> FormalizationResult:
     """
-    Main orchestrator function - coordinates full pipeline execution.
+    Main orchestrator function - coordinates full pipeline execution (Sprint 2).
     
     Runs all pipeline stages sequentially and returns the final formalization
-    result. This is the primary entry point for the formalization pipeline.
+    result. This is the primary entry point for the formalization pipeline,
+    integrating all Sprint 2 modules: preprocessing, concision, world construction,
+    and symbolization.
     
-    Pipeline flow:
+    Pipeline flow (Sprint 2):
     1. Ingest: Normalize input text
-    2. Preprocess: Segment into clauses
-    3. Concision: Extract atomic claims (deterministic fallback)
-    4. Assembly: Build FormalizationResult with symbols and CNF
+    2. Preprocessing: Segment, tokenize, annotate special tokens
+    3. Concision: Extract atomic claims with conditional/conjunction decomposition
+    4. World Construction: Reduce quantifiers to propositional placeholders (if detected)
+    5. Symbolization: Assign P1, P2, ... symbols and build legend
+    6. CNF: Generate CNF representation (stub for Sprint 2)
+    7. Assembly: Build complete FormalizationResult
     
     Args:
         input_text: Natural language statement to formalize
@@ -379,35 +386,210 @@ def formalize_statement(
         
     Returns:
         FormalizationResult containing symbols, legend, logical forms, CNF,
-        and complete provenance chain
+        and complete provenance chain for all transformations
         
     Example:
         >>> opts = FormalizeOptions()
-        >>> result = formalize_statement("Alice owns a car.", opts)
+        >>> result = formalize_statement("If it rains then the match is cancelled.", opts)
         >>> print(result.legend)
-        {'P1': 'Alice owns a car'}
+        {'P1': 'it rains', 'P2': 'the match is cancelled'}
+        >>> print(len(result.atomic_claims))
+        2
+        
+    Note:
+        - Sprint 2 implementation uses deterministic modules for reproducibility
+        - All modules record comprehensive provenance for transparency
+        - Quantifier reduction is applied when quantifiers are detected
+        - CNF transformation is a simplified stub pending Sprint 3
     """
+    # Import the Sprint 2 pipeline modules
+    # Local imports to avoid circular dependencies and ensure module availability
+    from src.pipeline import preprocessing as prep_module
+    from src.pipeline import concision as conc_module
+    from src.pipeline import world as world_module
+    from src.pipeline import symbolizer as sym_module
+    
     # Generate unique request ID with timezone-aware timestamp
     timestamp = datetime.datetime.now(datetime.timezone.utc)
     request_id = f"req_{timestamp.strftime('%Y%m%d%H%M%S')}"
     
-    # Create pipeline context
-    ctx = AgentContext(request_id, options, reproducible_mode=True)
-    
-    # Execute pipeline stages sequentially
-    ingest_result = ingest(input_text, ctx)
-    preprocess_result = preprocess(ingest_result.payload, ctx)
-    concision_result = deterministic_concision(preprocess_result.payload, ctx)
-    
-    # Assemble final output
-    final_result = assemble_output(
-        input_text,
-        concision_result.payload,
-        ctx,
-        concision_result.provenance_record
+    # Create pipeline context for Sprint 2
+    # Use options.reproducible_mode if specified, otherwise default to True
+    reproducible = getattr(options, 'reproducible_mode', True)
+    ctx = AgentContext(
+        request_id=request_id,
+        options=options,
+        reproducible_mode=reproducible,
+        deterministic_salt=getattr(options, 'deterministic_salt', 'sprint2')
     )
     
-    return final_result
+    # Collect all provenance records for final assembly
+    all_provenance = []
+    all_warnings = []
+    
+    # Stage 1: Preprocessing - segment, tokenize, annotate
+    try:
+        prep_result = prep_module.preprocess(input_text)
+        # Note: preprocessing module returns PreprocessingResult directly,
+        # not wrapped in ModuleResult yet. We'll create provenance here.
+        prep_provenance = ProvenanceRecord(
+            id=make_provenance_id(input_text, "preprocessing", "2.0.0", ctx.deterministic_salt),
+            created_at=datetime.datetime.now(datetime.timezone.utc),
+            module_id="preprocessing",
+            module_version="2.0.0",
+            adapter_id=None,
+            prompt_template_id=None,
+            adapter_request_id=None,
+            origin_spans=[(0, len(input_text))],
+            enrichment_sources=[],
+            confidence=1.0,
+            ambiguity_flags=[],
+            reduction_rationale="",
+            event_log=[]
+        )
+        all_provenance.append(prep_provenance)
+    except Exception as e:
+        # If preprocessing fails, create a minimal result for error reporting
+        all_warnings.append(f"Preprocessing failed: {str(e)}")
+        # Create a minimal preprocessing result to continue pipeline
+        from src.pipeline.preprocessing import PreprocessingResult, Clause
+        prep_result = PreprocessingResult(
+            normalized_text=input_text.strip(),
+            clauses=[Clause(text=input_text.strip(), start_char=0, end_char=len(input_text))],
+            tokens=[],
+            sentence_boundaries=[],
+            origin_spans={}
+        )
+    
+    # Stage 2: Concision - extract atomic claims with structural decomposition
+    try:
+        conc_module_result = conc_module.deterministic_concision(prep_result, ctx)
+        # Extract ConcisionResult from the payload dict
+        from src.witty_types import ConcisionResult
+        concision_result = ConcisionResult(**conc_module_result.payload)
+        all_provenance.append(conc_module_result.provenance_record)
+        all_warnings.extend(conc_module_result.warnings)
+    except Exception as e:
+        all_warnings.append(f"Concision failed: {str(e)}")
+        # Create minimal concision result
+        from src.witty_types import ConcisionResult
+        concision_result = ConcisionResult(
+            canonical_text=prep_result.normalized_text,
+            atomic_candidates=[],
+            confidence=0.0
+        )
+    
+    # Stage 3: World Construction - reduce quantifiers if detected
+    # Check if any atomic candidates contain quantifiers
+    has_quantifiers = False
+    if hasattr(concision_result, 'atomic_candidates'):
+        for candidate in concision_result.atomic_candidates:
+            # Simple heuristic: check for common quantifier words
+            text_lower = candidate.text.lower()
+            if any(q in text_lower for q in ['all', 'every', 'each', 'some', 'any', 'no', 'none']):
+                has_quantifiers = True
+                break
+    
+    if has_quantifiers:
+        try:
+            world_module_result = world_module.world_construct(
+                concision_result,
+                ctx,
+                salt=ctx.deterministic_salt
+            )
+            # Extract WorldResult from the payload dict
+            from src.witty_types import WorldResult
+            world_result = WorldResult(**world_module_result.payload)
+            all_provenance.append(world_module_result.provenance_record)
+            all_warnings.extend(world_module_result.warnings)
+            
+            # Use world-constructed claims for symbolization
+            claims_for_symbolization = world_result
+        except Exception as e:
+            all_warnings.append(f"World construction failed: {str(e)}")
+            # Fall back to using concision result directly
+            claims_for_symbolization = concision_result
+    else:
+        # No quantifiers detected - skip world construction, use concision directly
+        claims_for_symbolization = concision_result
+    
+    # Stage 4: Symbolization - assign P1, P2, ... symbols
+    try:
+        sym_module_result = sym_module.symbolizer(claims_for_symbolization, ctx)
+        # Extract SymbolizerResult from the payload dict
+        from src.witty_types import SymbolizerResult
+        symbolizer_result = SymbolizerResult(**sym_module_result.payload)
+        all_provenance.append(sym_module_result.provenance_record)
+        all_warnings.extend(sym_module_result.warnings)
+    except Exception as e:
+        all_warnings.append(f"Symbolization failed: {str(e)}")
+        # Create minimal symbolizer result
+        from src.witty_types import SymbolizerResult
+        symbolizer_result = SymbolizerResult(
+            legend={},
+            atomic_claims=[],
+            confidence=0.0
+        )
+    
+    # Stage 5: CNF Transformation (stub for Sprint 2, full implementation in Sprint 3)
+    # For now, create simple CNF representation
+    cnf = None
+    cnf_clauses = []
+    
+    if symbolizer_result.legend:
+        # Simple CNF: conjunction of all atomic symbols
+        symbols = list(symbolizer_result.legend.keys())
+        cnf = " ∧ ".join(symbols)
+        # Each symbol is its own clause (unit clause)
+        cnf_clauses = [[symbol] for symbol in symbols]
+    
+    # Stage 6: Assemble FormalizationResult
+    # Build logical form candidates
+    logical_form_candidates = []
+    if symbolizer_result.legend:
+        # Create a simple logical form using the legend
+        notation = " ∧ ".join([
+            f"{sym}:{text[:30]}..." if len(text) > 30 else f"{sym}:{text}"
+            for sym, text in symbolizer_result.legend.items()
+        ])
+        logical_form_candidates.append({
+            "ast": {},  # Reserved for future implementation
+            "notation": notation,
+            "confidence": symbolizer_result.confidence
+        })
+    
+    chosen_logical_form = logical_form_candidates[0] if logical_form_candidates else None
+    
+    # Calculate overall confidence
+    # Average across stages that provided results
+    confidences = [
+        conc_module_result.confidence if 'conc_module_result' in locals() else 1.0,
+        symbolizer_result.confidence
+    ]
+    if has_quantifiers and 'world_module_result' in locals():
+        confidences.append(world_module_result.confidence)
+    
+    overall_confidence = sum(confidences) / len(confidences) if confidences else 1.0
+    
+    # Build final FormalizationResult
+    # Convert nested Pydantic models to dicts for proper validation
+    result = FormalizationResult.model_validate({
+        "request_id": request_id,
+        "original_text": input_text,
+        "canonical_text": concision_result.canonical_text if hasattr(concision_result, 'canonical_text') else input_text,
+        "atomic_claims": [claim.model_dump() for claim in symbolizer_result.atomic_claims],
+        "legend": symbolizer_result.legend,
+        "logical_form_candidates": logical_form_candidates,
+        "chosen_logical_form": chosen_logical_form,
+        "cnf": cnf,
+        "cnf_clauses": cnf_clauses,
+        "confidence": overall_confidence,
+        "provenance": [prov.model_dump() for prov in all_provenance],
+        "warnings": all_warnings
+    })
+    
+    # Ensure we return the validated Pydantic instance, not a dict
+    return result
 
 
 # Script execution support for debugging and development
