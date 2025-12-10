@@ -3,3 +3,13 @@ DevPlan.md
 .sprint1_plan.md
 docs/sprint1_plan.md
 docs/sprint2_plan.md
+
+# Internal summaries and task documentation (not for public repo)
+docs/*Summary.md
+docs/Sprint*_Task*_Summary.md
+ 
+# Ignore entire internal docs folder
+docs/internal/
+
+# Ignore private docs folder
+docs/private/
