@@ -1,5 +1,37 @@
 {
   "template_id": "concise_v1",
-  "version": "0.0.1",
-  "released_at": "2025-11-03T00:00:00Z"
+  "version": "1.0.0",
+  "released_at": "2026-02-27T00:00:00Z",
+  "description": "Extracts atomic claims from natural language with origin span tracking",
+  "input_variables": ["input_text"],
+  "output_schema": {
+    "type": "object",
+    "required": ["canonical_text", "atomic_candidates", "confidence"],
+    "properties": {
+      "canonical_text": {"type": "string"},
+      "atomic_candidates": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["text", "origin_spans"],
+          "properties": {
+            "text": {"type": "string"},
+            "origin_spans": {
+              "type": "array",
+              "items": {"type": "array", "items": {"type": "integer"}}
+            },
+            "role": {"type": "string", "enum": ["antecedent", "consequent", "conjunct", "disjunct"]}
+          }
+        }
+      },
+      "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+      "structure_type": {"type": "string"}
+    }
+  },
+  "model_requirements": {
+    "min_context_tokens": 2000,
+    "recommended_models": ["gpt-4o-mini", "gpt-4o", "llama-3.1-70b-versatile"]
+  },
+  "author": "Victor Rowello",
+  "sprint": 4
 }

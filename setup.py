@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="witty",
-    version="0.2.0",
+    version="0.3.0",
     description="Witty natural language formalization pipeline",
     author="Victor Rowello",
     packages=find_packages(where="src"),

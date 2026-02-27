@@ -1,4 +1,4 @@
-# Witty v0.2.0 — Epistemic Formalization Engine
+# Witty v0.3.0 — Epistemic Formalization Engine
 
 Witty converts plain‑English declarative statements and long‑form arguments into machine‑readable formalizations that expose the minimal atomic claims and the inferences required for the input to be true. This README is a concise, high-level primer on what the system produces, the data pipeline, where LLMs are used versus deterministic code, and how provenance and reproducibility are handled.
 
@@ -272,13 +272,19 @@ pytest tests/test_orchestrator.py -v
 
 ##  Status
 
+**Sprint 4 Complete (February 2026)**:
+- ✅ OpenAI-compatible adapter (works with OpenAI, Groq, Together AI, Azure)
+- ✅ Enhanced MockLLMAdapter with intelligent response generation
+- ✅ Adapter registry with provider defaults (Groq, Together)
+- ✅ LLM concision with validate→retry→fallback flow
+- ✅ Concision prompt template (concise_v1.txt) with JSON schema
+- ✅ 387 passing tests with comprehensive coverage
+
 **Sprint 3 Complete (February 2026)**:
 - ✅ Full CNF transformation (eliminate IMPLIES/IFF → NNF → distribute OR over AND)
 - ✅ Validation module (symbol coverage, provenance coverage, tautology/contradiction detection)
 - ✅ Entity grounding with deterministic type inference
 - ✅ Coherence reporting (entity completeness, quantifier coverage)
-- ✅ 337 passing tests with comprehensive coverage
-- ✅ All Sprint 3 acceptance criteria met per Design Spec
 
 **Sprint 2 Complete (November 2025)**: 
 - ✅ Deterministic core pipeline fully implemented
@@ -291,10 +297,11 @@ pytest tests/test_orchestrator.py -v
 
 **Sprint 1 Complete**: Core type system, mock adapter, and initial pipeline structure.
 
-**What's Next (Sprint 4)**:
-- LLM adapter wiring and concision LLM path
-- OpenAI adapter integration with validate→retry→fallback flow
-- Prompt templates with embedded schemas
+**What's Next (Sprint 5)**:
+- Context enrichment with retrieval adapters
+- LLM-driven world construction (world_construct_v1)
+- Modal detection (modal_detect_v1)
+- Symbolization LLM path (symbolize_v1)
 
 This is an early-stage prototype currently under active development. Contributions, feedback, and questions are welcome.
 

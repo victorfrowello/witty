@@ -3,7 +3,7 @@ Concision Module for Witty Pipeline.
 
 This module extracts minimal atomic claims from preprocessed text, decomposing
 logical structures (implications, conjunctions) into their components. It implements
-rule-based pattern matching for conditionals and logical connectives.
+both rule-based pattern matching and LLM-assisted extraction.
 
 Key Features:
 - Conditional structure detection (if-then, implies, iff patterns)
@@ -12,16 +12,20 @@ Key Features:
 - Deterministic behavior for reproducible results
 - Origin span preservation throughout decomposition
 - Negation and quantifier preservation
+- LLM-assisted concision with retry logic (Sprint 4)
 
 Author: Victor Rowello
 Sprint: 2, Task: 2
+Updated: Sprint 4 - Added LLM concision path
 """
 from __future__ import annotations
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from pydantic import BaseModel, Field
 import re
 import hashlib
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 from src.witty_types import (
     AtomicClaim,
@@ -30,6 +34,9 @@ from src.witty_types import (
     ProvenanceRecord,
 )
 from src.pipeline.preprocessing import PreprocessingResult, Clause, Token
+
+if TYPE_CHECKING:
+    from src.adapters.base import AdapterResponse
 
 
 class ConditionalStructure(BaseModel):
@@ -606,3 +613,331 @@ def _generate_provenance_id(
     payload = f"{normalized_input}\n{module_id}\n{module_version}\n{salt}"
     hash_digest = hashlib.sha256(payload.encode('utf-8')).hexdigest()
     return f"pr_{hash_digest[:12]}"
+
+
+# =============================================================================
+# LLM-Assisted Concision (Sprint 4)
+# =============================================================================
+
+class LLMConcisionConfig(BaseModel):
+    """
+    Configuration for LLM-assisted concision.
+    
+    Controls retry behavior, fallback policies, and validation thresholds
+    for LLM-based atomic claim extraction.
+    
+    Attributes:
+        max_retries: Maximum number of retry attempts on LLM failure
+        min_confidence: Minimum confidence threshold for accepting LLM results
+        fallback_to_rule_based: Whether to fall back to rule-based concision on failure
+        validate_spans: Whether to validate that origin spans match actual text
+        prompt_template_id: ID of the prompt template to use
+    """
+    max_retries: int = Field(default=3, ge=0, le=10)
+    min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    fallback_to_rule_based: bool = True
+    validate_spans: bool = True
+    prompt_template_id: str = "concise_v1"
+
+
+def _load_prompt_template(template_id: str) -> str:
+    """
+    Load a prompt template from the prompts directory.
+    
+    Args:
+        template_id: Template identifier (e.g., 'concise_v1')
+        
+    Returns:
+        Template content as string
+        
+    Raises:
+        FileNotFoundError: If template file doesn't exist
+    """
+    # Find prompts directory relative to this module
+    prompts_dir = Path(__file__).parent.parent / "prompts"
+    template_path = prompts_dir / f"{template_id}.txt"
+    
+    if not template_path.exists():
+        raise FileNotFoundError(
+            f"Prompt template '{template_id}' not found at {template_path}"
+        )
+    
+    return template_path.read_text(encoding="utf-8")
+
+
+def _validate_llm_response(
+    response: Dict[str, Any],
+    original_text: str,
+    validate_spans: bool = True
+) -> Tuple[bool, List[str]]:
+    """
+    Validate an LLM concision response.
+    
+    Checks that the response has required fields and that origin spans
+    actually correspond to positions in the original text.
+    
+    Args:
+        response: Parsed JSON response from LLM
+        original_text: The original input text
+        validate_spans: Whether to validate origin span positions
+        
+    Returns:
+        Tuple of (is_valid, list_of_warnings)
+    """
+    warnings = []
+    
+    # Check required fields
+    if "canonical_text" not in response:
+        return False, ["Missing required field: canonical_text"]
+    
+    if "atomic_candidates" not in response:
+        return False, ["Missing required field: atomic_candidates"]
+    
+    if not isinstance(response["atomic_candidates"], list):
+        return False, ["atomic_candidates must be a list"]
+    
+    # Validate each atomic candidate
+    for i, candidate in enumerate(response["atomic_candidates"]):
+        if "text" not in candidate:
+            return False, [f"atomic_candidates[{i}] missing 'text' field"]
+        
+        if "origin_spans" not in candidate:
+            warnings.append(f"atomic_candidates[{i}] missing origin_spans, will use defaults")
+            continue
+        
+        # Validate spans if requested
+        if validate_spans and candidate.get("origin_spans"):
+            for span in candidate["origin_spans"]:
+                if not isinstance(span, (list, tuple)) or len(span) != 2:
+                    warnings.append(f"Invalid span format in atomic_candidates[{i}]")
+                    continue
+                start, end = span
+                if not (0 <= start <= end <= len(original_text)):
+                    warnings.append(
+                        f"Span [{start}, {end}] out of bounds for text length {len(original_text)}"
+                    )
+    
+    # Check confidence if present
+    confidence = response.get("confidence", 0.0)
+    if not isinstance(confidence, (int, float)) or not (0.0 <= confidence <= 1.0):
+        warnings.append(f"Invalid confidence value: {confidence}")
+    
+    return True, warnings
+
+
+def _parse_llm_concision_response(
+    response: "AdapterResponse",
+    original_text: str,
+    config: LLMConcisionConfig,
+    deterministic_salt: str
+) -> Tuple[Optional[ConcisionResult], List[str]]:
+    """
+    Parse and convert LLM response to ConcisionResult.
+    
+    Args:
+        response: AdapterResponse from the LLM
+        original_text: Original input text
+        config: LLM concision configuration
+        deterministic_salt: Salt for generating IDs
+        
+    Returns:
+        Tuple of (ConcisionResult or None if invalid, warnings list)
+    """
+    warnings = []
+    
+    # Check if we got parsed JSON
+    if response.parsed_json is None:
+        return None, ["LLM response did not contain valid JSON"]
+    
+    parsed = response.parsed_json
+    
+    # Validate the response
+    is_valid, validation_warnings = _validate_llm_response(
+        parsed, original_text, config.validate_spans
+    )
+    warnings.extend(validation_warnings)
+    
+    if not is_valid:
+        return None, warnings
+    
+    # Check confidence threshold
+    confidence = parsed.get("confidence", 0.0)
+    if confidence < config.min_confidence:
+        warnings.append(
+            f"LLM confidence {confidence:.2f} below threshold {config.min_confidence:.2f}"
+        )
+        return None, warnings
+    
+    # Generate provenance ID
+    provenance_id = _generate_provenance_id(
+        original_text,
+        "concision",
+        "4.0.0",  # Sprint 4 version
+        deterministic_salt
+    )
+    
+    # Build provenance record
+    provenance = ProvenanceRecord(
+        id=provenance_id,
+        created_at=datetime.now(timezone.utc),
+        module_id="concision",
+        module_version="4.0.0",
+        confidence=confidence,
+        reduction_rationale=(
+            f"LLM-extracted {len(parsed['atomic_candidates'])} atomic candidates"
+        ),
+        event_log=[
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "event_type": "llm_concision",
+                "message": "Used LLM-assisted concision",
+                "meta": {
+                    "adapter_provenance": response.adapter_provenance,
+                    "tokens": response.tokens,
+                    "structure_type": parsed.get("structure_type", "unknown"),
+                }
+            }
+        ]
+    )
+    
+    # Convert atomic candidates to AtomicClaim objects
+    atomic_claims = []
+    for candidate in parsed["atomic_candidates"]:
+        # Get origin spans, defaulting to full text if not provided
+        origin_spans = candidate.get("origin_spans", [[0, len(original_text)]])
+        
+        # Convert to list of tuples
+        spans_as_tuples = [
+            (span[0], span[1]) if isinstance(span, (list, tuple)) else (0, len(original_text))
+            for span in origin_spans
+        ]
+        
+        atomic_claims.append(
+            AtomicClaim(
+                text=candidate["text"],
+                origin_spans=spans_as_tuples,
+                provenance=provenance,
+            )
+        )
+    
+    # Build ConcisionResult
+    result = ConcisionResult(
+        canonical_text=parsed["canonical_text"],
+        atomic_candidates=atomic_claims,
+        confidence=confidence,
+        explanations=f"LLM-assisted extraction: {parsed.get('structure_type', 'unknown')} structure",
+    )
+    
+    return result, warnings
+
+
+def llm_concision(
+    preprocessing_result: PreprocessingResult,
+    ctx: Any,  # AgentContext
+    adapter: Any = None,  # BaseAdapter
+    config: Optional[LLMConcisionConfig] = None
+) -> ModuleResult:
+    """
+    Perform LLM-assisted concision with retry and fallback.
+    
+    Uses a language model to extract atomic claims from the preprocessed text.
+    Implements retry logic with exponential backoff and can fall back to
+    rule-based concision if the LLM fails or returns low-confidence results.
+    
+    Algorithm:
+        1. Load prompt template and format with input text
+        2. Call LLM adapter with retry on failure
+        3. Parse and validate LLM response
+        4. If valid, convert to ConcisionResult
+        5. If invalid and fallback enabled, use rule-based concision
+        6. Record all provenance including LLM metadata
+    
+    Args:
+        preprocessing_result: Output from preprocessing stage
+        ctx: AgentContext with request metadata
+        adapter: LLM adapter to use (falls back to mock if not provided)
+        config: Optional LLMConcisionConfig for behavior customization
+        
+    Returns:
+        ModuleResult containing ConcisionResult and provenance
+        
+    Example:
+        >>> from src.adapters.registry import get_adapter
+        >>> adapter = get_adapter("mock")
+        >>> result = llm_concision(preprocess_result, ctx, adapter)
+    """
+    config = config or LLMConcisionConfig()
+    warnings = []
+    
+    # Get adapter if not provided
+    if adapter is None:
+        from src.adapters.registry import get_adapter
+        adapter = get_adapter("mock")
+        warnings.append("No adapter provided, using mock adapter")
+    
+    # Load and format prompt
+    try:
+        template = _load_prompt_template(config.prompt_template_id)
+        prompt = template.replace("{input_text}", preprocessing_result.normalized_text)
+    except FileNotFoundError as e:
+        warnings.append(f"Prompt template error: {e}")
+        if config.fallback_to_rule_based:
+            warnings.append("Falling back to rule-based concision")
+            result = deterministic_concision(preprocessing_result, ctx)
+            result.warnings.extend(warnings)
+            return result
+        raise
+    
+    # Attempt LLM concision with retries
+    last_error: Optional[Exception] = None
+    llm_result: Optional[ConcisionResult] = None
+    
+    for attempt in range(config.max_retries + 1):
+        try:
+            # Call the adapter
+            response = adapter.generate(
+                prompt_template_id=config.prompt_template_id,
+                prompt=prompt,
+            )
+            
+            # Parse the response
+            llm_result, parse_warnings = _parse_llm_concision_response(
+                response,
+                preprocessing_result.normalized_text,
+                config,
+                ctx.deterministic_salt
+            )
+            warnings.extend(parse_warnings)
+            
+            if llm_result is not None:
+                # Success - build and return ModuleResult
+                return ModuleResult(
+                    payload=llm_result.model_dump(),
+                    provenance_record=llm_result.atomic_candidates[0].provenance if llm_result.atomic_candidates else None,
+                    confidence=llm_result.confidence,
+                    warnings=warnings
+                )
+            
+            # LLM returned invalid/low-confidence response
+            if attempt < config.max_retries:
+                warnings.append(f"Attempt {attempt + 1} failed, retrying...")
+            
+        except Exception as e:
+            last_error = e
+            warnings.append(f"Attempt {attempt + 1} error: {str(e)}")
+            if attempt >= config.max_retries:
+                break
+    
+    # All retries exhausted - fall back or raise
+    if config.fallback_to_rule_based:
+        warnings.append(
+            f"LLM concision failed after {config.max_retries + 1} attempts. "
+            f"Falling back to rule-based concision."
+        )
+        result = deterministic_concision(preprocessing_result, ctx)
+        result.warnings.extend(warnings)
+        return result
+    
+    # No fallback - raise the error
+    error_msg = f"LLM concision failed: {last_error or 'All attempts returned invalid results'}"
+    raise RuntimeError(error_msg)
