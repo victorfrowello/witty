@@ -163,27 +163,78 @@ class ConcisionResult(BaseModel):
     error: Optional[str] = None
 
 
+class EntityGrounding(BaseModel):
+    """
+    Represents a grounded entity with its type and related claims.
+    
+    Entity groundings map named entities to their semantic roles and
+    the atomic claims that reference them. This enables coherence
+    validation and ensures all entities are properly tracked.
+    
+    Attributes:
+        entity_text: The surface text of the entity
+        entity_type: Semantic type (PERSON, ORG, LOCATION, GENERIC, etc.)
+        grounding_method: How the entity was grounded (deterministic, llm_assisted)
+        related_claim_ids: IDs of atomic claims referencing this entity
+        confidence: Confidence in the grounding
+    """
+    entity_text: str
+    entity_type: str = "GENERIC"
+    grounding_method: str = "deterministic"
+    related_claim_ids: List[str] = Field(default_factory=list)
+    confidence: float = Field(0.8, ge=0.0, le=1.0)
+
+
+class CoherenceReport(BaseModel):
+    """
+    Report on the coherence of world construction output.
+    
+    Validates that all entities are grounded, quantifiers are reduced,
+    and the overall construction is logically coherent.
+    
+    Attributes:
+        is_coherent: Whether the construction passes coherence checks
+        entity_completeness: Fraction of entities that are grounded (0.0-1.0)
+        quantifier_coverage: Fraction of quantifiers properly reduced
+        ungrounded_entities: List of entities without groundings
+        warnings: Coherence-related warnings
+        score: Overall coherence score (0.0-1.0)
+    """
+    is_coherent: bool = True
+    entity_completeness: float = Field(1.0, ge=0.0, le=1.0)
+    quantifier_coverage: float = Field(1.0, ge=0.0, le=1.0)
+    ungrounded_entities: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    score: float = Field(1.0, ge=0.0, le=1.0)
+
+
 class WorldResult(BaseModel):
     """
     Result from the world construction stage.
     
     This stage expands presuppositions and reduces quantifiers to propositional
     placeholders, preparing the logical structure for symbolization and CNF
-    transformation.
+    transformation. Sprint 3 adds entity grounding and coherence validation.
     
     Attributes:
         atomic_claims: Updated list of atomic claims (may include new claims
                       from quantifier reduction and presupposition expansion)
+        atomic_instances: List of grounded atomic instances with entity types
+        entity_groundings: Map from entity text to EntityGrounding objects
         reduction_metadata: Metadata about quantifier reductions performed
         presupposition_metadata: Metadata about presuppositions expanded
         quantifier_map: Mapping from quantified statements to their reductions
+        coherence_report: Report on entity and quantifier coherence
         confidence: Overall confidence in the world construction
         warnings: Any warnings encountered during processing
     """
     atomic_claims: List[AtomicClaim]
+    atomic_instances: List[Dict[str, Any]] = Field(default_factory=list)
+    entity_groundings: Dict[str, EntityGrounding] = Field(default_factory=dict)
     reduction_metadata: Dict[str, Any] = Field(default_factory=dict)
     presupposition_metadata: Dict[str, Any] = Field(default_factory=dict)
     quantifier_map: Dict[str, str] = Field(default_factory=dict)
+    coherence_report: Optional[CoherenceReport] = None
     confidence: float = Field(1.0, ge=0.0, le=1.0)
     warnings: List[str] = Field(default_factory=list)
 

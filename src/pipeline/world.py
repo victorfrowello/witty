@@ -22,7 +22,7 @@ Algorithm:
     IDs are deterministic: SHA256(text + salt + variable + predicate)[:4]
 
 Author: Victor Rowello
-Sprint: 2, Task: 3
+Sprint: 2, Task: 3; Enhanced in Sprint 3 with entity extraction and coherence
 """
 from __future__ import annotations
 from typing import List, Dict, Any, Optional, Tuple
@@ -36,6 +36,8 @@ from src.witty_types import (
     ConcisionResult,
     ModuleResult,
     ProvenanceRecord,
+    EntityGrounding,
+    CoherenceReport,
 )
 
 
@@ -92,29 +94,9 @@ class PresuppositionStructure(BaseModel):
     confidence: float = Field(0.70, ge=0.0, le=1.0)
 
 
-class WorldResult(BaseModel):
-    """
-    Result from the world construction stage.
-    
-    This stage expands presuppositions and reduces quantifiers to propositional
-    placeholders, preparing the logical structure for symbolization and CNF
-    transformation.
-    
-    Attributes:
-        atomic_claims: Updated list of atomic claims (may include new claims
-                      from quantifier reduction and presupposition expansion)
-        reduction_metadata: Metadata about quantifier reductions performed
-        presupposition_metadata: Metadata about presuppositions expanded
-        quantifier_map: Mapping from quantified statements to their reductions
-        confidence: Overall confidence in the world construction
-        warnings: Any warnings encountered during processing
-    """
-    atomic_claims: List[AtomicClaim]
-    reduction_metadata: Dict[str, Any] = Field(default_factory=dict)
-    presupposition_metadata: Dict[str, Any] = Field(default_factory=dict)
-    quantifier_map: Dict[str, str] = Field(default_factory=dict)
-    confidence: float = Field(1.0, ge=0.0, le=1.0)
-    warnings: List[str] = Field(default_factory=list)
+# Note: WorldResult is now defined in src/witty_types.py for Sprint 3
+# Import it from there to ensure consistency across the codebase
+from src.witty_types import WorldResult
 
 
 # Quantifier patterns for detection
@@ -546,6 +528,186 @@ def detect_presupposition(text: str, start_offset: int = 0) -> Optional[Presuppo
     return None
 
 
+# ============================================================================
+# Entity Extraction and Grounding (Sprint 3)
+# ============================================================================
+
+def extract_entities(
+    claims: List[AtomicClaim],
+    event_log: List[Dict[str, Any]]
+) -> Dict[str, EntityGrounding]:
+    """
+    Extract and ground entities from atomic claims.
+    
+    Uses pattern matching and heuristics to identify named entities in claims.
+    For Sprint 3, uses deterministic extraction. LLM-assisted extraction
+    can be added in Sprint 5.
+    
+    Args:
+        claims: List of atomic claims to process
+        event_log: Event log to record extraction events
+        
+    Returns:
+        Dictionary mapping entity text to EntityGrounding objects
+        
+    Example:
+        >>> claims = [AtomicClaim(text="John runs to the store", symbol="P1")]
+        >>> groundings = extract_entities(claims, [])
+        >>> "John" in groundings
+        True
+        >>> groundings["John"].entity_type
+        'PERSON'
+    """
+    entity_groundings: Dict[str, EntityGrounding] = {}
+    
+    # Patterns for entity extraction
+    # Capitalized words (potential named entities)
+    name_pattern = re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b')
+    
+    # Common entity type indicators
+    person_indicators = {'Mr', 'Mrs', 'Ms', 'Dr', 'Prof', 'John', 'Jane', 'Mary', 
+                        'James', 'Robert', 'Michael', 'David', 'Sarah', 'Alice', 'Bob'}
+    location_indicators = {'Street', 'Avenue', 'City', 'Town', 'Country', 'Park',
+                          'Building', 'University', 'School', 'Hospital'}
+    org_indicators = {'Inc', 'Corp', 'Ltd', 'LLC', 'Company', 'Organization',
+                     'Institute', 'Foundation', 'Department'}
+    
+    for claim_idx, claim in enumerate(claims):
+        matches = name_pattern.findall(claim.text)
+        
+        for entity_text in matches:
+            if entity_text in entity_groundings:
+                # Already grounded, add this claim to related claims
+                if claim.symbol:
+                    entity_groundings[entity_text].related_claim_ids.append(claim.symbol)
+                continue
+            
+            # Determine entity type heuristically
+            entity_type = "GENERIC"
+            words = entity_text.split()
+            
+            # Check indicators
+            if any(w in person_indicators for w in words):
+                entity_type = "PERSON"
+            elif any(w in location_indicators for w in words):
+                entity_type = "LOCATION"
+            elif any(w in org_indicators for w in words):
+                entity_type = "ORGANIZATION"
+            elif len(words) == 1 and words[0][0].isupper():
+                # Single capitalized word - likely a person name
+                entity_type = "PERSON"
+            
+            # Create grounding
+            grounding = EntityGrounding(
+                entity_text=entity_text,
+                entity_type=entity_type,
+                grounding_method="deterministic",
+                related_claim_ids=[claim.symbol] if claim.symbol else [],
+                confidence=0.75 if entity_type == "GENERIC" else 0.85
+            )
+            
+            entity_groundings[entity_text] = grounding
+            
+            # Log extraction event
+            event_log.append({
+                'ts': datetime.now(timezone.utc).isoformat(),
+                'event_type': 'entity_extracted',
+                'message': f'Extracted entity "{entity_text}" from claim {claim_idx}',
+                'meta': {
+                    'entity_text': entity_text,
+                    'entity_type': entity_type,
+                    'grounding_method': 'deterministic'
+                }
+            })
+    
+    return entity_groundings
+
+
+def build_coherence_report(
+    claims: List[AtomicClaim],
+    entity_groundings: Dict[str, EntityGrounding],
+    quantifier_map: Dict[str, str]
+) -> CoherenceReport:
+    """
+    Build a coherence report for world construction output.
+    
+    Validates that entities are properly grounded and quantifiers are
+    properly reduced, producing a coherence score and any warnings.
+    
+    Args:
+        claims: List of atomic claims
+        entity_groundings: Entity grounding map
+        quantifier_map: Map of quantified text to reduced symbols
+        
+    Returns:
+        CoherenceReport with completeness scores and warnings
+        
+    Example:
+        >>> report = build_coherence_report(claims, groundings, quantifier_map)
+        >>> report.is_coherent
+        True
+        >>> report.score
+        0.95
+    """
+    warnings = []
+    
+    # Check entity completeness
+    # Extract all potential entities from claims
+    entity_pattern = re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b')
+    all_entities = set()
+    for claim in claims:
+        matches = entity_pattern.findall(claim.text)
+        all_entities.update(matches)
+    
+    grounded_entities = set(entity_groundings.keys())
+    ungrounded = all_entities - grounded_entities
+    
+    entity_completeness = (
+        len(grounded_entities) / len(all_entities) 
+        if all_entities else 1.0
+    )
+    
+    if ungrounded:
+        warnings.append(f"Ungrounded entities: {list(ungrounded)}")
+    
+    # Check quantifier reduction coverage
+    quantifier_indicators = ['all', 'every', 'some', 'no', 'each', 'any']
+    quantified_claims = 0
+    reduced_claims = 0
+    
+    for claim in claims:
+        text_lower = claim.text.lower()
+        has_quantifier = any(q in text_lower for q in quantifier_indicators)
+        if has_quantifier:
+            quantified_claims += 1
+            # Check if symbol indicates reduction
+            if claim.symbol and claim.symbol[0] in ('R', 'E', 'N'):
+                reduced_claims += 1
+    
+    quantifier_coverage = (
+        reduced_claims / quantified_claims 
+        if quantified_claims > 0 else 1.0
+    )
+    
+    if quantified_claims > reduced_claims:
+        warnings.append(
+            f"Unreduced quantifiers: {quantified_claims - reduced_claims} of {quantified_claims}"
+        )
+    
+    # Calculate overall score
+    score = (entity_completeness + quantifier_coverage) / 2
+    is_coherent = score >= 0.6 and len(ungrounded) == 0
+    
+    return CoherenceReport(
+        is_coherent=is_coherent,
+        entity_completeness=entity_completeness,
+        quantifier_coverage=quantifier_coverage,
+        ungrounded_entities=list(ungrounded),
+        warnings=warnings,
+        score=score
+    )
+
+
 def world_construct(
     concision_result: ConcisionResult,
     ctx: Any,  # AgentContext - avoiding import for now
@@ -684,11 +846,36 @@ def world_construct(
             })
     
     # Build WorldResult payload
+    # Sprint 3: Add entity extraction and coherence
+    entity_groundings = extract_entities(updated_claims, event_log)
+    coherence_report = build_coherence_report(
+        updated_claims, entity_groundings, quantifier_map
+    )
+    
+    # Build atomic instances with grounding info
+    atomic_instances = []
+    for claim in updated_claims:
+        instance = {
+            'claim_text': claim.text,
+            'symbol': claim.symbol,
+            'origin_spans': claim.origin_spans,
+            'grounding_method': 'deterministic'
+        }
+        # Check if this claim has entity references
+        for entity_text in entity_groundings:
+            if entity_text.lower() in claim.text.lower():
+                instance['entity_references'] = instance.get('entity_references', [])
+                instance['entity_references'].append(entity_text)
+        atomic_instances.append(instance)
+    
     world_result = WorldResult(
         atomic_claims=updated_claims,
+        atomic_instances=atomic_instances,
+        entity_groundings={k: v for k, v in entity_groundings.items()},
         reduction_metadata=reduction_metadata,
         presupposition_metadata=presupposition_metadata,
         quantifier_map=quantifier_map,
+        coherence_report=coherence_report,
         confidence=min_confidence,
         warnings=warnings
     )

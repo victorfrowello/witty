@@ -408,6 +408,8 @@ def formalize_statement(
     from src.pipeline import concision as conc_module
     from src.pipeline import world as world_module
     from src.pipeline import symbolizer as sym_module
+    from src.pipeline import cnf as cnf_module
+    from src.pipeline import validation as val_module
     
     # Generate unique request ID with timezone-aware timestamp
     timestamp = datetime.datetime.now(datetime.timezone.utc)
@@ -531,19 +533,62 @@ def formalize_statement(
             confidence=0.0
         )
     
-    # Stage 5: CNF Transformation (stub for Sprint 2, full implementation in Sprint 3)
-    # For now, create simple CNF representation
+    # Stage 5: CNF Transformation (Sprint 3 - full implementation)
     cnf = None
     cnf_clauses = []
+    structural_metadata = {}
+    
+    # Extract structural metadata from concision result
+    if hasattr(concision_result, 'structural_metadata'):
+        structural_metadata = concision_result.structural_metadata
     
     if symbolizer_result.legend:
-        # Simple CNF: conjunction of all atomic symbols
-        symbols = list(symbolizer_result.legend.keys())
-        cnf = " ∧ ".join(symbols)
-        # Each symbol is its own clause (unit clause)
-        cnf_clauses = [[symbol] for symbol in symbols]
+        try:
+            cnf_result = cnf_module.cnf_transform(
+                claims=symbolizer_result.atomic_claims,
+                legend=symbolizer_result.legend,
+                structural_metadata=structural_metadata,
+                salt=ctx.deterministic_salt
+            )
+            from src.pipeline.cnf import CNFResult
+            cnf_data = CNFResult(**cnf_result.payload)
+            cnf = cnf_data.cnf_string
+            cnf_clauses = cnf_data.cnf_clauses
+            all_provenance.append(cnf_result.provenance_record)
+            all_warnings.extend(cnf_result.warnings)
+        except Exception as e:
+            all_warnings.append(f"CNF transformation failed: {str(e)}")
+            # Fallback to simple CNF
+            symbols = list(symbolizer_result.legend.keys())
+            cnf = " ∧ ".join(symbols)
+            cnf_clauses = [[symbol] for symbol in symbols]
     
-    # Stage 6: Assemble FormalizationResult
+    # Stage 6: Validation (Sprint 3)
+    entity_groundings = None
+    if has_quantifiers and 'world_result' in dir():
+        entity_groundings = getattr(world_result, 'entity_groundings', None)
+    
+    try:
+        validation_result = val_module.validate_formalization(
+            atomic_claims=symbolizer_result.atomic_claims,
+            legend=symbolizer_result.legend,
+            cnf_clauses=cnf_clauses,
+            provenance_records=all_provenance,
+            entity_groundings=entity_groundings,
+            salt=ctx.deterministic_salt
+        )
+        from src.pipeline.validation import ValidationReport
+        validation_report = ValidationReport(**validation_result.payload)
+        all_provenance.append(validation_result.provenance_record)
+        all_warnings.extend(validation_result.warnings)
+        
+        # Add validation issues as warnings
+        if validation_report.issues:
+            all_warnings.extend(validation_report.issues)
+    except Exception as e:
+        all_warnings.append(f"Validation failed: {str(e)}")
+    
+    # Stage 7: Assemble FormalizationResult
     # Build logical form candidates
     logical_form_candidates = []
     if symbolizer_result.legend:
