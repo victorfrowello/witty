@@ -1,4 +1,4 @@
-# Witty v0.1.5 — Epistemic Formalization Engine
+# Witty v0.2.0 — Epistemic Formalization Engine
 
 Witty converts plain‑English declarative statements and long‑form arguments into machine‑readable formalizations that expose the minimal atomic claims and the inferences required for the input to be true. This README is a concise, high-level primer on what the system produces, the data pipeline, where LLMs are used versus deterministic code, and how provenance and reproducibility are handled.
 
@@ -272,6 +272,14 @@ pytest tests/test_orchestrator.py -v
 
 ##  Status
 
+**Sprint 3 Complete (February 2026)**:
+- ✅ Full CNF transformation (eliminate IMPLIES/IFF → NNF → distribute OR over AND)
+- ✅ Validation module (symbol coverage, provenance coverage, tautology/contradiction detection)
+- ✅ Entity grounding with deterministic type inference
+- ✅ Coherence reporting (entity completeness, quantifier coverage)
+- ✅ 337 passing tests with comprehensive coverage
+- ✅ All Sprint 3 acceptance criteria met per Design Spec
+
 **Sprint 2 Complete (November 2025)**: 
 - ✅ Deterministic core pipeline fully implemented
 - ✅ Preprocessing with sentence/clause segmentation and origin span tracking
@@ -279,15 +287,14 @@ pytest tests/test_orchestrator.py -v
 - ✅ World construction with quantifier reduction
 - ✅ Symbolization with deterministic symbol assignment
 - ✅ Provenance tracking for complete audit trails
-- ✅ 246 passing tests with 100% deterministic behavior
 - ✅ Schema-compliant FormalizationResult outputs
 
 **Sprint 1 Complete**: Core type system, mock adapter, and initial pipeline structure.
 
-**What's Next (Sprint 3)**:
-- Full CNF transformation (NNF conversion, distribution)
-- Validation module (symbol coverage, contradiction detection)
-- Enhanced output assembly
+**What's Next (Sprint 4)**:
+- LLM adapter wiring and concision LLM path
+- OpenAI adapter integration with validate→retry→fallback flow
+- Prompt templates with embedded schemas
 
 This is an early-stage prototype currently under active development. Contributions, feedback, and questions are welcome.
 

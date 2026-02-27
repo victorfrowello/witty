@@ -2,9 +2,9 @@ from setuptools import setup, find_packages
 
 setup(
     name="witty",
-    version="0.1.0",
+    version="0.2.0",
     description="Witty natural language formalization pipeline",
-    author="Victor",
+    author="Victor Rowello",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     python_requires=">=3.8",
