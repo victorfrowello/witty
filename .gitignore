@@ -13,3 +13,36 @@ docs/internal/
 
 # Ignore private docs folder
 docs/private/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test/temp files
+temp_test.txt
+test_claim.txt
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment
+.env
+.env.local

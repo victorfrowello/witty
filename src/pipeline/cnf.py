@@ -85,6 +85,8 @@ class CNFResult(BaseModel):
         cnf_clauses: List of clauses, each clause is a list of literals
         clause_legend: Mapping from clause index to source information
         ast: The final CNF AST (conjunction of disjunctions)
+        modal_atoms: For compound modal statements, maps symbol to expansion
+                     (e.g., {"M1": {"operator": "POSSIBLE", "scope": {"type": "AND", ...}}})
         transformation_steps: Record of transformation steps applied
         confidence: Confidence in the transformation
         warnings: Any warnings encountered
@@ -93,10 +95,10 @@ class CNFResult(BaseModel):
     cnf_clauses: List[List[str]]
     clause_legend: Dict[int, Dict[str, Any]] = Field(default_factory=dict)
     ast: Optional[Dict[str, Any]] = None
+    modal_atoms: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     transformation_steps: List[str] = Field(default_factory=list)
     confidence: float = Field(1.0, ge=0.0, le=1.0)
     warnings: List[str] = Field(default_factory=list)
-
 
 # ============================================================================
 # AST Construction Helpers
@@ -434,7 +436,14 @@ def ast_to_string(node: ASTNode) -> str:
         return f"{ast_to_string(node.children[0])} ↔ {ast_to_string(node.children[1])}"
     
     if node.node_type == NodeType.MODAL:
-        op = "□" if node.modal_operator == "NECESSARY" else "◇"
+        # Map modal_operator to symbol
+        modal_symbols = {
+            "NECESSARY": "□",
+            "POSSIBLE": "◇",
+            "NOT_POSSIBLE": "¬◇",
+            "NOT_NECESSARY": "¬□"
+        }
+        op = modal_symbols.get(node.modal_operator, "?")
         return f"{op}{ast_to_string(node.children[0])}"
     
     return "?"
@@ -499,6 +508,28 @@ def extract_clauses(cnf_node: ASTNode) -> List[List[str]]:
 # AST Construction from Claims
 # ============================================================================
 
+def _make_atom_with_modal(symbol: str, claim: Optional[AtomicClaim]) -> ASTNode:
+    """
+    Create an atom node, optionally wrapped with a modal operator.
+    
+    If the claim has a modal_context (NECESSARY or POSSIBLE), wraps the atom
+    in a MODAL node to preserve the modal semantics in the CNF.
+    
+    Args:
+        symbol: The propositional symbol (e.g., "P1")
+        claim: The AtomicClaim (may have modal_context)
+        
+    Returns:
+        ASTNode - either a plain ATOM or MODAL(ATOM)
+    """
+    base_atom = atom(symbol, original_text=claim.text if claim else None)
+    
+    if claim and claim.modal_context:
+        return modal(claim.modal_context, base_atom)
+    
+    return base_atom
+
+
 def build_ast_from_claims(
     claims: List[AtomicClaim],
     structural_metadata: Dict[str, Any]
@@ -508,6 +539,7 @@ def build_ast_from_claims(
     
     Uses the structural_metadata from concision to reconstruct the logical
     relationships between atomic claims (conditionals, conjunctions, etc.).
+    Modal operators from claims are preserved by wrapping atoms in MODAL nodes.
     
     Args:
         claims: List of atomic claims with assigned symbols
@@ -517,8 +549,8 @@ def build_ast_from_claims(
         AST representing the logical formula
         
     Note:
-        For Sprint 3, this handles basic conjunctions. More complex structures
-        (nested conditionals, disjunctions) can be added in future sprints.
+        Supports mixed structures (e.g., conjunction + conditional) as of Sprint 7.
+        Modal operators are preserved at the atom level for simple cases.
     """
     if not claims:
         # Empty formula
@@ -526,6 +558,16 @@ def build_ast_from_claims(
     
     # Build symbol lookup
     symbol_map = {c.symbol: c for c in claims if c.symbol}
+    all_symbols = [c.symbol for c in claims if c.symbol]
+    
+    def make_node(symbol: str) -> ASTNode:
+        """Create atom node with modal wrapper if applicable."""
+        claim = symbol_map.get(symbol)
+        return _make_atom_with_modal(symbol, claim)
+    
+    # Track which symbols are used in relationships
+    used_in_relationships = set()
+    ast_parts = []
     
     # Check for conditional structure
     conditional_info = structural_metadata.get("conditional", {})
@@ -534,35 +576,84 @@ def build_ast_from_claims(
         antecedent_symbols = conditional_info.get("antecedent_claims", [])
         consequent_symbols = conditional_info.get("consequent_claims", [])
         
+        # Track symbols used in conditional
+        used_in_relationships.update(antecedent_symbols)
+        used_in_relationships.update(consequent_symbols)
+        
         # Build antecedent (conjunction if multiple)
-        ant_nodes = [atom(s) for s in antecedent_symbols if s in symbol_map or s.startswith(("P", "R", "E"))]
+        ant_nodes = [make_node(s) for s in antecedent_symbols if s in symbol_map or s.startswith(("P", "R", "E"))]
         if not ant_nodes:
-            ant_nodes = [atom(claims[0].symbol)] if claims else [atom("P1")]
+            ant_nodes = [make_node(claims[0].symbol)] if claims else [atom("P1")]
         antecedent = and_(*ant_nodes) if len(ant_nodes) > 1 else ant_nodes[0]
         
         # Build consequent (conjunction if multiple)
-        cons_nodes = [atom(s) for s in consequent_symbols if s in symbol_map or s.startswith(("P", "R", "E"))]
+        cons_nodes = [make_node(s) for s in consequent_symbols if s in symbol_map or s.startswith(("P", "R", "E"))]
         if not cons_nodes and len(claims) > 1:
-            cons_nodes = [atom(claims[-1].symbol)] if claims[-1].symbol else [atom("P2")]
+            cons_nodes = [make_node(claims[-1].symbol)] if claims[-1].symbol else [atom("P2")]
         elif not cons_nodes:
             cons_nodes = [atom("P2")]
         consequent = and_(*cons_nodes) if len(cons_nodes) > 1 else cons_nodes[0]
         
-        return implies(antecedent, consequent)
+        ast_parts.append(implies(antecedent, consequent))
     
-    # Check for conjunction structure
+    # Check for biconditional structure
+    biconditional_info = structural_metadata.get("biconditional", {})
+    if biconditional_info:
+        left_symbols = biconditional_info.get("left_claims", [])
+        right_symbols = biconditional_info.get("right_claims", [])
+        
+        used_in_relationships.update(left_symbols)
+        used_in_relationships.update(right_symbols)
+        
+        left_nodes = [make_node(s) for s in left_symbols if s in symbol_map or s.startswith(("P", "R", "E"))]
+        right_nodes = [make_node(s) for s in right_symbols if s in symbol_map or s.startswith(("P", "R", "E"))]
+        
+        if left_nodes and right_nodes:
+            left = and_(*left_nodes) if len(left_nodes) > 1 else left_nodes[0]
+            right = and_(*right_nodes) if len(right_nodes) > 1 else right_nodes[0]
+            ast_parts.append(iff(left, right))
+    
+    # Check for explicit conjunction structure
     conjunction_info = structural_metadata.get("conjunction", {})
-    if conjunction_info or len(claims) > 1:
-        # Multiple claims in conjunction
-        nodes = [atom(c.symbol) for c in claims if c.symbol]
+    if conjunction_info:
+        conjunct_symbols = conjunction_info.get("conjunct_claims", [])
+        used_in_relationships.update(conjunct_symbols)
+        
+        # Conjuncts are individual atoms to be ANDed
+        conj_nodes = [make_node(s) for s in conjunct_symbols if s in symbol_map or s.startswith(("P", "R", "E"))]
+        ast_parts.extend(conj_nodes)
+    
+    # Check for disjunction structure
+    disjunction_info = structural_metadata.get("disjunction", {})
+    if disjunction_info:
+        disjunct_symbols = disjunction_info.get("disjunct_claims", [])
+        used_in_relationships.update(disjunct_symbols)
+        
+        disj_nodes = [make_node(s) for s in disjunct_symbols if s in symbol_map or s.startswith(("P", "R", "E"))]
+        if disj_nodes:
+            ast_parts.append(or_(*disj_nodes) if len(disj_nodes) > 1 else disj_nodes[0])
+    
+    # Add any remaining claims not in explicit relationships as conjuncts
+    # (for backwards compatibility with rule-based concision)
+    structure_type = structural_metadata.get("structure_type", "")
+    if not ast_parts or structure_type not in ("conditional", "biconditional", "disjunction", "mixed"):
+        remaining_symbols = [s for s in all_symbols if s not in used_in_relationships]
+        if remaining_symbols:
+            remaining_nodes = [make_node(s) for s in remaining_symbols]
+            ast_parts.extend(remaining_nodes)
+    
+    # Combine all parts with AND
+    if not ast_parts:
+        # No structure found, default to conjunction of all claims
+        nodes = [make_node(c.symbol) for c in claims if c.symbol]
         if nodes:
             return and_(*nodes) if len(nodes) > 1 else nodes[0]
+        return atom("P1")
     
-    # Single claim
-    if claims and claims[0].symbol:
-        return atom(claims[0].symbol)
+    if len(ast_parts) == 1:
+        return ast_parts[0]
     
-    return atom("P1")
+    return and_(*ast_parts)
 
 
 # ============================================================================
@@ -654,8 +745,18 @@ def cnf_transform(
     for i, clause in enumerate(cnf_clauses):
         clause_legend[i] = {
             'literals': clause,
-            'sources': [legend.get(lit.replace('¬', ''), lit) for lit in clause]
+            'sources': [legend.get(lit.replace('¬', '').replace('□', '').replace('◇', ''), lit) for lit in clause]
         }
+    
+    # Extract modal atoms (compound modal statements)
+    modal_atoms = {}
+    for claim in claims:
+        if claim.symbol and claim.modal_scope:
+            modal_atoms[claim.symbol] = {
+                'operator': claim.modal_context,
+                'scope': claim.modal_scope,
+                'text': claim.text
+            }
     
     # Create CNF result
     cnf_result = CNFResult(
@@ -663,6 +764,7 @@ def cnf_transform(
         cnf_clauses=cnf_clauses,
         clause_legend=clause_legend,
         ast=cnf_ast.model_dump(),
+        modal_atoms=modal_atoms,
         transformation_steps=transformation_steps,
         confidence=1.0,  # Deterministic transformation
         warnings=warnings

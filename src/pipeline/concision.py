@@ -725,6 +725,116 @@ def _validate_llm_response(
     return True, warnings
 
 
+def _convert_llm_structural_metadata(
+    llm_metadata: Dict[str, Any],
+    id_to_index: Dict[str, int],
+    structure_type: str
+) -> Dict[str, Any]:
+    """
+    Convert LLM structural_metadata format to CNF module format.
+    
+    LLM format:
+        {
+            "relationships": [
+                {"type": "IMPLIES", "antecedent_ids": ["c1"], "consequent_ids": ["c2"]},
+                {"type": "AND", "conjunct_ids": ["c3", "c4"]}
+            ]
+        }
+    
+    CNF format:
+        {
+            "conditional": {"antecedent_claims": [0], "consequent_claims": [1]},
+            "conjunction": {"conjunct_claims": [2, 3]}
+        }
+    
+    Note: Returns indices (not symbols) since symbols are assigned later by symbolizer.
+          The orchestrator will convert indices to symbols after symbolization.
+    
+    Args:
+        llm_metadata: The structural_metadata from LLM response
+        id_to_index: Mapping from claim IDs (c1, c2) to indices (0, 1)
+        structure_type: The structure_type from LLM response
+        
+    Returns:
+        Dict in CNF-compatible format with claim indices
+    """
+    result: Dict[str, Any] = {
+        "structure_type": structure_type,
+        "claim_indices": {}  # Store relationships by claim index
+    }
+    
+    relationships = llm_metadata.get("relationships", [])
+    
+    for rel in relationships:
+        rel_type = rel.get("type", "").upper()
+        
+        if rel_type in ("IMPLIES", "UNLESS"):
+            # Conditional relationship
+            antecedent_ids = rel.get("antecedent_ids", [])
+            consequent_ids = rel.get("consequent_ids", [])
+            
+            # Convert IDs to indices
+            antecedent_indices = [
+                id_to_index.get(cid, int(cid[1:]) - 1 if cid.startswith("c") else 0)
+                for cid in antecedent_ids
+            ]
+            consequent_indices = [
+                id_to_index.get(cid, int(cid[1:]) - 1 if cid.startswith("c") else 0)
+                for cid in consequent_ids
+            ]
+            
+            result["conditional"] = {
+                "antecedent_indices": antecedent_indices,
+                "consequent_indices": consequent_indices,
+                "relation_type": rel_type  # Track if it's UNLESS vs IMPLIES
+            }
+            
+        elif rel_type == "IFF":
+            # Biconditional relationship
+            antecedent_ids = rel.get("antecedent_ids", [])
+            consequent_ids = rel.get("consequent_ids", [])
+            
+            antecedent_indices = [
+                id_to_index.get(cid, int(cid[1:]) - 1 if cid.startswith("c") else 0)
+                for cid in antecedent_ids
+            ]
+            consequent_indices = [
+                id_to_index.get(cid, int(cid[1:]) - 1 if cid.startswith("c") else 0)
+                for cid in consequent_ids
+            ]
+            
+            result["biconditional"] = {
+                "left_indices": antecedent_indices,
+                "right_indices": consequent_indices
+            }
+            
+        elif rel_type == "AND":
+            # Conjunction relationship
+            conjunct_ids = rel.get("conjunct_ids", [])
+            conjunct_indices = [
+                id_to_index.get(cid, int(cid[1:]) - 1 if cid.startswith("c") else 0)
+                for cid in conjunct_ids
+            ]
+            
+            result["conjunction"] = {
+                "conjunct_indices": conjunct_indices
+            }
+            
+        elif rel_type == "OR":
+            # Disjunction relationship
+            disjunct_ids = rel.get("disjunct_ids", rel.get("conjunct_ids", []))
+            disjunct_indices = [
+                id_to_index.get(cid, int(cid[1:]) - 1 if cid.startswith("c") else 0)
+                for cid in disjunct_ids
+            ]
+            
+            result["disjunction"] = {
+                "disjunct_indices": disjunct_indices
+            }
+    
+    return result
+
+
 def _parse_llm_concision_response(
     response: "AdapterResponse",
     original_text: str,
@@ -802,7 +912,8 @@ def _parse_llm_concision_response(
     
     # Convert atomic candidates to AtomicClaim objects
     atomic_claims = []
-    for candidate in parsed["atomic_candidates"]:
+    id_to_index = {}  # Map claim IDs to their index in atomic_claims list
+    for idx, candidate in enumerate(parsed["atomic_candidates"]):
         # Get origin spans, defaulting to full text if not provided
         origin_spans = candidate.get("origin_spans", [[0, len(original_text)]])
         
@@ -812,18 +923,51 @@ def _parse_llm_concision_response(
             for span in origin_spans
         ]
         
+        # Extract modal operator if present
+        modal_operator = candidate.get("modal_operator")
+        modal_context = None
+        if modal_operator:
+            # Normalize to standard modal context values
+            modal_op_upper = modal_operator.upper() if isinstance(modal_operator, str) else None
+            if modal_op_upper in ("NECESSARY", "NECESSITY", "MUST"):
+                modal_context = "NECESSARY"
+            elif modal_op_upper in ("POSSIBLE", "POSSIBILITY", "MIGHT", "COULD"):
+                modal_context = "POSSIBLE"
+            elif modal_op_upper in ("NOT_POSSIBLE", "IMPOSSIBLE", "CANNOT"):
+                modal_context = "NOT_POSSIBLE"
+            elif modal_op_upper in ("NOT_NECESSARY", "NOT_NECESSARILY", "CONTINGENT"):
+                modal_context = "NOT_NECESSARY"
+        
+        # Extract modal_scope for compound modal statements
+        modal_scope = candidate.get("modal_scope")
+        
         atomic_claims.append(
             AtomicClaim(
                 text=candidate["text"],
                 origin_spans=spans_as_tuples,
+                modal_context=modal_context,
+                modal_scope=modal_scope,
                 provenance=provenance,
             )
         )
+        
+        # Track ID mapping
+        claim_id = candidate.get("id", f"c{idx + 1}")
+        id_to_index[claim_id] = idx
+    
+    # Process structural_metadata from LLM response
+    # Convert from LLM format (relationships with IDs) to CNF format (conditional/conjunction)
+    structural_metadata = _convert_llm_structural_metadata(
+        parsed.get("structural_metadata", {}),
+        id_to_index,
+        parsed.get("structure_type", "simple")
+    )
     
     # Build ConcisionResult
     result = ConcisionResult(
         canonical_text=parsed["canonical_text"],
         atomic_candidates=atomic_claims,
+        structural_metadata=structural_metadata,
         confidence=confidence,
         explanations=f"LLM-assisted extraction: {parsed.get('structure_type', 'unknown')} structure",
     )

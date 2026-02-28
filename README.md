@@ -1,322 +1,390 @@
-# Witty v0.5.0 — Epistemic Formalization Engine
+# Witty v1.0 — Epistemic Formalization Engine
 
-Witty converts plain‑English declarative statements and long‑form arguments into machine‑readable formalizations that expose the minimal atomic claims and the inferences required for the input to be true. This README is a concise, high-level primer on what the system produces, the data pipeline, where LLMs are used versus deterministic code, and how provenance and reproducibility are handled.
+[![Tests](https://img.shields.io/badge/tests-549%20passed-brightgreen)]()
+[![Python](https://img.shields.io/badge/python-3.9+-blue)]()
+[![License](https://img.shields.io/badge/license-GPL--3.0-green)]()
 
-Witty is **NOT** a fact checking engine. It formalizes the logical structure and minimal claims implied by an input under the assumption the input is true: it does not verify, validate, or assert the factual correctness of those claims.
+Witty converts natural language statements into machine-readable logical formalizations. It extracts atomic claims, handles modal logic (necessity/possibility), and produces CNF (Conjunctive Normal Form) output with complete provenance tracking.
 
----
-
-## What Witty produces
-- canonical_text (cleaned canonicalization of the input)  
-- atomic_claims[] (each with a ProvenanceRecord and reduction rationale)  
-- legend mapping symbols (P1, P2, …) → claims  
-- logical_form_candidates[] (typed JSON AST + human notation) and a chosen logical form  
-- propositional CNF (modal wrappers preserved at atom level)  
-- validation report, warnings, aggregated confidence, and a chronological provenance event_log
+**Witty is NOT a fact-checker.** It formalizes the logical structure of statements assuming they are true.
 
 ---
 
-## How to call it
-```py
-formalize_statement(input_text: str, options: FormalizeOptions) -> FormalizationResult
-```
-Every pipeline stage returns a ModuleResult:
-- payload — typed (pydantic) output  
-- provenance_record — module provenance entry  
-- confidence — float 0..1  
-- warnings — list[str]
-
----
-
-## Data pipeline (stages, outputs, LLM vs deterministic)
-
-1. Ingest — Deterministic  
-   - Normalize text, set request metadata.  
-   - Output: normalized_text + initial provenance.
-
-2. Preprocessing — Deterministic  
-   - Sentence/clause segmentation, tokenization, token annotations (negation, modals, quantifiers, temporals), origin_spans mapping.  
-   - Output: PreprocessingResult.
-
-3. Concision — LLM‑driven by default; Deterministic fallback  
-   - Default: call LLM (concise_v1) to produce strict JSON: canonical_text, atomic_candidates (with origin_spans), confidence, explanations.  
-   - Validate with pydantic and semantic checks (negation preserved, quantifier scope, origin_spans coverage).  
-   - On parse failure or confidence < threshold: retry once, then run deterministic_concision() and flag human_review.  
-   - Output: ConcisionResult + provenance recording attempts and path taken.
-
-4. Context Enrichment (optional) — Deterministic retrieval; summarization LLM‑assisted  
-   - RetrievalAdapter fetches sources deterministically; summaries may be LLM‑assisted and follow validate→retry→fallback rules.  
-   - Output: enrichment_sources[] + provenance (snippets redacted under strict privacy).
-
-5. Modal Detection & Framing — Deterministic rule-first; LLM confirmation optional  
-   - Run lexical rules; when uncertain or configured, call modal_detect_v1 (LLM) for confirmation and recommended frame.  
-   - Output: modal_metadata + provenance.
-
-6. World Construction — Deterministic  
-   - Assume canonical_text true; expand presuppositions; deterministically reduce quantifiers to propositional constants (readable IDs like E{n}_... / R{n}_...).  
-   - Output: ordered atomic_claims[] each with ProvenanceRecord.
-
-7. Symbolization — Deterministic core; LLM suggestions allowed  
-   - Deterministic: assign stable symbols (P1, P2, …) and build legend.  
-   - Optional: request LLM AST suggestions via symbolize_v1; validate suggestions and fall back to deterministic assignment.  
-   - Output: legend, logical_form_candidates + provenance.
-
-8. CNF Transformation — Deterministic  
-   - Algorithmic steps: remove IMPLIES/IFF → NNF → distribute OR over AND; treat modal-wrapped atoms as atomic tokens by default.  
-   - Output: cnf string, cnf_clauses[], clause→legend mapping + provenance.
-
-9. Validation & Sanity Checks — Deterministic  
-   - Ensure symbol coverage, provenance coverage for each atomic claim, detect trivial contradictions/tautologies, aggregate confidences.  
-   - Output: validation_report, warnings + provenance.
-
-10. Output Assembly — Deterministic  
-   - Merge module provenance chronologically, attach config/thresholds used, emit final FormalizationResult JSON.
-
----
-
-## Provenance, privacy, and determinism
-
-- Every module emits a ProvenanceRecord: deterministic id, created_at, module_id/version, adapter_id/prompt_template_id (if LLM used), origin_spans, enrichment_sources (redactable), confidence, ambiguity_flags, reduction_rationale, and event_log of decisions.  
-- Every LLM call records adapter_provenance: {adapter_id, version, prompt_template_id, request_id, raw_output_summary} (raw content redacted under strict privacy).  
-- Deterministic id formula: SHA256(normalized_input + module_id + module_version + deterministic_salt) truncated with a readable suffix.  
-- `privacy_mode == "strict"` redacts excerpts and URLs while keeping structured IDs.  
-- `REPRODUCIBLE_MODE=true` forces Mock adapters and disables external retrieval for deterministic CI.
-
----
-
-## LLM usage policy (applies to all LLM‑driven stages)
-
-- Prompts must request strict JSON matching an embedded schema; adapters should attempt to parse and expose parsed_json.  
-- Pattern for each LLM call: Validate → Retry (1 retry default) → Deterministic fallback. Record every attempt and decision in provenance.event_log.  
-- Default runtime knobs (configurable): llm_conf_threshold = 0.70; max_retries_per_tool = 1; origin_spans_coverage_threshold = 0.80.
-
----
-
-##  Project Structure
-```
-witty/
-├── src/                      # Core source code
-│   ├── adapters/             # LLMAdapter implementations and registry
-│   │   ├── base.py           # Abstract LLMAdapter interface
-│   │   ├── openai.py         # OpenAIAdapter (uses OPENAI_API_KEY)
-│   │   ├── mock.py           # MockLLMAdapter (for testing)
-│   │   ├── local.py          # LocalLLMAdapter (e.g., subprocess or localhost)
-│   │   └── registry.py       # get_llm_adapter() factory
-│   │
-│   ├── pipeline/             # Core formalization pipeline modules
-│   │   ├── orchestrator.py   # formalize_statement() entry point
-│   │   ├── preprocessing.py  # Tokenization, segmentation, annotation
-│   │   ├── concision.py      # Concision module (LLM + rules)
-│   │   ├── modality.py       # Modal detection and framing
-│   │   ├── world.py          # World construction logic
-│   │   ├── symbolizer.py     # Symbol assignment and legend generation
-│   │   ├── cnf.py            # CNF transformer (NNF, distribution)
-│   │   ├── validation.py     # Sanity checks and confidence scoring
-│   │   └── provenance.py     # Provenance tracking utilities
-│   │
-│   ├── prompts/              # Prompt templates (versioned)
-│   │   ├── concise_v1.txt
-│   │   ├── modal_detect_v1.txt
-│   │   ├── world_construct_v1.txt
-│   │   └── symbolize_v1.txt
-│   │
-│   ├── cli.py                # Command-line interface
-│   ├── config.py             # Global config loader (e.g., env vars, adapter settings)
-│   ├── types.py              # Shared dataclasses and schema bindings
-│   ├── utils.py              # General-purpose utilities
-│   └── test_runner.py        # Batch runner for examples and integration tests
-│
-├── schemas/                  # JSON schemas for inputs and outputs
-│   ├── FormalizationResult.json
-│   └── FormalizeOptions.json
-│
-├── examples/                 # Sample inputs and outputs
-│   ├── input_statements.txt
-│   └── formalized_outputs/
-│
-├── tests/                    # Unit and integration tests
-│   ├── test_concision.py
-│   ├── test_modality.py
-│   ├── test_symbolizer.py
-│   └── ...
-│
-├── .env                      # Environment variables (e.g., API keys)
-├── README.md                 # Project overview and usage
-└── LICENSE                   # License file
-```
----
-
-## Sprint 1 Quickstart (Deterministic Mock Mode)
+## Quick Start
 
 ### Installation
 
-1. **Clone the repository**:
-```powershell
-git clone <repository-url>
-cd witty-1
-```
-
-2. **Create and activate a virtual environment** (recommended):
-```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-```
-
-3. **Install dependencies**:
-```powershell
+```bash
+git clone https://github.com/victorfrowello/witty.git
+cd witty
+python -m venv .venv
+.venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 ```
 
-### Basic Usage
+### As a Python Library
 
-The CLI currently operates in **deterministic mock mode** for Sprint 1, using pre-defined responses without requiring any API keys or network calls.
+```python
+from src.pipeline.orchestrator import formalize
 
-**Run a simple example**:
-```powershell
-python -m src.cli --input examples/simple_conditional.txt --output result.json --reproducible
+result = formalize("If it rains, the match is cancelled.")
+
+print(result.legend)      # {'P1': 'it rains', 'P2': 'the match is cancelled'}
+print(result.cnf)         # '¬P1 ∨ P2'
+print(result.cnf_clauses) # [['¬P1', 'P2']]
 ```
 
-**View the output**:
-```powershell
+### As a CLI Tool
+
+```bash
+# Create input file
+echo "If it rains, the match is cancelled." > input.txt
+
+# Run formalization
+python -m src.cli --input input.txt --output result.json --reproducible
+
+# View result
 cat result.json
 ```
 
-### CLI Options
+---
 
-```
---input INPUT          Input text file (required)
---output OUTPUT        Output JSON file (required)
---config CONFIG        Optional YAML configuration file
---env ENV              Path to .env file (default: .env)
---verbosity LEVEL      Logging level: 'normal' or 'debug'
---reproducible         Enable reproducible mode (deterministic behavior)
-```
+## Features
 
-### Example Workflow
+- **Atomic Claim Extraction**: Breaks complex statements into minimal propositions
+- **Modal Logic Support**: Preserves necessity (□) and possibility (◇) operators
+- **CNF Transformation**: Algorithmic conversion to Conjunctive Normal Form
+- **Agent-Driven Enrichment**: Automatically fetches context when beneficial
+- **Complete Provenance**: Full audit trail of all transformations
+- **Dual Interface**: Use as library or CLI
 
-```powershell
-# Process a simple conditional statement
-python -m src.cli `
-  --input examples/simple_conditional.txt `
-  --output outputs/simple.json `
-  --reproducible `
-  --verbosity debug
+---
 
-# Process a modal logic example
-python -m src.cli `
-  --input examples/modal_necessity.txt `
-  --output outputs/modal.json `
-  --reproducible
-```
-
-### What You Get
-
-The output `FormalizationResult` JSON contains:
-- **canonical_text**: Cleaned/normalized input
-- **atomic_claims**: Extracted minimal claims with symbols (P1, P2, ...)
-- **legend**: Mapping from symbols to natural language
-- **logical_form_candidates**: Proposed logical representations
-- **chosen_logical_form**: Selected logical form
-- **cnf**: Conjunctive Normal Form representation
-- **cnf_clauses**: CNF broken into clauses
-- **provenance**: Complete tracking of all transformations
-- **confidence**: Overall confidence score
-- **warnings**: Any issues encountered
-
-### Running Tests
-
-```powershell
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=src --cov-report=html
-
-# Run specific test module
-pytest tests/test_orchestrator.py -v
-```
-
-### Current Limitations (Sprint 1)
-
-- **No live LLM integration**: All responses are deterministic mock data
-- **Limited pipeline stages**: Core stages implemented, some advanced features pending
-- **English only**: Multi-language support planned for future sprints
-
-### Example Output Structure
+## What Witty Produces
 
 ```json
 {
-  "request_id": "req_abc123",
-  "original_text": "If Alice owns a red car, then Alice prefers driving.",
-  "canonical_text": "If Alice owns a red car, then Alice prefers driving.",
-  "atomic_claims": [
-    {
-      "text": "Alice owns a red car",
-      "symbol": "P1",
-      "origin_spans": [[3, 24]]
-    },
-    {
-      "text": "Alice prefers driving",
-      "symbol": "P2",
-      "origin_spans": [[31, 52]]
-    }
-  ],
-  "legend": {
-    "P1": "Alice owns a red car",
-    "P2": "Alice prefers driving"
-  },
+  "legend": {"P1": "it rains", "P2": "the match is cancelled"},
   "cnf": "¬P1 ∨ P2",
-  "confidence": 0.95
+  "cnf_clauses": [["¬P1", "P2"]],
+  "atomic_claims": [...],
+  "modal_metadata": {"P1": "NECESSARY"},
+  "confidence": 0.95,
+  "provenance": [...]
 }
 ```
 
-##  Status
-
-**Sprint 6 Complete (February 2026)**:
-- ✅ Agentic orchestrator using smolagents framework
-- ✅ MockToolCallingModel for deterministic testing
-- ✅ 8 pipeline tool wrappers (preprocess, concision, enrichment, modal, world, symbolize, cnf, validate)
-- ✅ WittyPipelineAgent with retry/fallback policy
-- ✅ Provenance tracking at tool invocation level
-- ✅ 489 passing tests (41 new agent tests)
-
-**Sprint 5 Complete (February 2026)**:
-- ✅ Context enrichment with retrieval adapters
-- ✅ LLM-driven world construction (world_construct_v1)
-- ✅ Modal detection (modal_detect_v1) with S5 frame default
-- ✅ Privacy modes (default, audit, strict) with redaction
-- ✅ 448 passing tests
-
-**Sprint 4 Complete (February 2026)**:
-- ✅ OpenAI-compatible adapter (works with OpenAI, Groq, Together AI, Azure)
-- ✅ Enhanced MockLLMAdapter with intelligent response generation
-- ✅ Adapter registry with provider defaults (Groq, Together)
-- ✅ LLM concision with validate→retry→fallback flow
-- ✅ Concision prompt template (concise_v1.txt) with JSON schema
-- ✅ 387 passing tests with comprehensive coverage
-
-**Sprint 3 Complete (February 2026)**:
-- ✅ Full CNF transformation (eliminate IMPLIES/IFF → NNF → distribute OR over AND)
-- ✅ Validation module (symbol coverage, provenance coverage, tautology/contradiction detection)
-- ✅ Entity grounding with deterministic type inference
-- ✅ Coherence reporting (entity completeness, quantifier coverage)
-
-**Sprint 2 Complete (November 2025)**: 
-- ✅ Deterministic core pipeline fully implemented
-- ✅ Preprocessing with sentence/clause segmentation and origin span tracking
-- ✅ Concision with implication decomposition (8 conditional patterns)
-- ✅ World construction with quantifier reduction
-- ✅ Symbolization with deterministic symbol assignment
-- ✅ Provenance tracking for complete audit trails
-- ✅ Schema-compliant FormalizationResult outputs
-
-**Sprint 1 Complete**: Core type system, mock adapter, and initial pipeline structure.
-
-**What's Next (Sprint 7)**:
-- Live LLM integration with Groq Llama 3.3 70B
-- Swap MockToolCallingModel for real LLM
-- End-to-end validation with live model
-
-This is an early-stage prototype currently under active development. Contributions, feedback, and questions are welcome.
+| Field | Description |
+|-------|-------------|
+| `legend` | Symbol → claim text mapping |
+| `cnf` | CNF formula as string |
+| `cnf_clauses` | CNF as nested lists |
+| `atomic_claims` | Extracted claims with metadata |
+| `modal_metadata` | Modal operators by symbol |
+| `confidence` | Aggregate confidence (0-1) |
+| `provenance` | Full transformation history |
 
 ---
+
+## Examples
+
+### Conditionals
+```python
+formalize("If P then Q.")
+# CNF: ¬P ∨ Q
+```
+
+### Conjunctions
+```python
+formalize("A and B and C.")
+# CNF: A ∧ B ∧ C
+```
+
+### Disjunctions
+```python
+formalize("Either X or Y.")
+# CNF: X ∨ Y
+```
+
+### Modal Logic
+```python
+formalize("Squares are necessarily rectangles.")
+# CNF: □P1
+# modal_metadata: {'P1': 'NECESSARY'}
+
+formalize("It is possible that it will rain.")
+# CNF: ◇P1
+# modal_metadata: {'P1': 'POSSIBLE'}
+```
+
+---
+
+## CLI Reference
+
+```bash
+python -m src.cli --input INPUT --output OUTPUT [OPTIONS]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--input FILE` | Input text file (required) |
+| `--output FILE` | Output JSON file (required) |
+| `--reproducible` | Deterministic mode (no external calls) |
+| `--live` | Enable LLM processing (requires API key) |
+| `--retrieval` | Force external context retrieval |
+| `--no-retrieval` | Disable auto-enrichment |
+| `--verbosity LEVEL` | `normal` or `debug` |
+| `--model MODEL` | LLM model override |
+
+### Examples
+
+```bash
+# Reproducible mode (deterministic)
+python -m src.cli --input input.txt --output result.json --reproducible
+
+# Live mode with LLM
+python -m src.cli --input input.txt --output result.json --live
+
+# Debug output
+python -m src.cli --input input.txt --output result.json --verbosity debug
+```
+
+---
+
+## Library API
+
+### Basic Usage
+
+```python
+from src.pipeline.orchestrator import formalize
+from src.witty_types import FormalizeOptions
+
+# Default (agent orchestrator with auto-enrichment)
+result = formalize("All mammals are warm-blooded.")
+
+# With options
+opts = FormalizeOptions(
+    reproducible_mode=True,  # Deterministic
+    no_retrieval=True,       # Disable enrichment
+)
+result = formalize("If X then Y.", opts)
+```
+
+### Available Options
+
+```python
+FormalizeOptions(
+    reproducible_mode=False,  # Use deterministic pipeline
+    no_retrieval=False,       # Disable auto-enrichment
+    retrieval_enabled=False,  # Force enrichment
+    live_mode=False,          # Enable live LLM
+    llm_model=None,           # LLM model name
+    privacy_mode="default",   # "default" or "strict"
+    verbosity=0,              # Logging level
+)
+```
+
+See [API Reference](docs/API.md) for complete documentation.
+
+---
+
+## Pipeline Architecture
+
+```
+Input Text
+    ↓
+┌─────────────────┐
+│  Preprocessing  │ → Tokenization, segmentation
+└─────────────────┘
+    ↓
+┌─────────────────┐
+│    Concision    │ → Extract atomic claims
+└─────────────────┘
+    ↓
+┌─────────────────┐
+│   Enrichment    │ → (Optional) Fetch external context
+└─────────────────┘
+    ↓
+┌─────────────────┐
+│ Modal Detection │ → Identify necessity/possibility
+└─────────────────┘
+    ↓
+┌─────────────────┐
+│  Symbolization  │ → Assign P1, P2, ... symbols
+└─────────────────┘
+    ↓
+┌─────────────────┐
+│ CNF Transform   │ → Convert to Conjunctive Normal Form
+└─────────────────┘
+    ↓
+FormalizationResult
+```
+
+---
+
+## Agent-Driven Enrichment
+
+Witty's agent automatically decides when to fetch external context (Wikipedia, DuckDuckGo).
+
+**Triggers enrichment:**
+- Domain quantifiers: "all mammals", "every country"
+- Factual claims: dates, statistics, proper nouns
+- Underspecified references: "the current president"
+
+**Control behavior:**
+```python
+# Let agent decide (default)
+result = formalize("All mammals are warm-blooded.")
+
+# Force enrichment
+opts = FormalizeOptions(retrieval_enabled=True)
+
+# Disable enrichment
+opts = FormalizeOptions(no_retrieval=True)
+```
+
+---
+
+## Configuration
+
+### Environment Variables
+
+For live LLM mode, create a `.env` file in the project root:
+
+```env
+# Groq API (default provider - free tier available)
+GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx
+
+# Alternative: OpenAI API
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx
+
+# Alternative: Other OpenAI-compatible APIs
+OPENAI_API_KEY=your_api_key
+OPENAI_API_BASE=https://api.together.xyz/v1  # Together AI
+# OPENAI_API_BASE=https://your-azure-endpoint.openai.azure.com/  # Azure OpenAI
+```
+
+### Getting API Keys
+
+| Provider | Free Tier | Signup |
+|----------|-----------|--------|
+| **Groq** (default) | 100K tokens/day | [console.groq.com](https://console.groq.com) |
+| **OpenAI** | $5 credit | [platform.openai.com](https://platform.openai.com) |
+| **Together AI** | Free tier | [together.ai](https://together.ai) |
+| **Azure OpenAI** | Pay-as-you-go | [azure.microsoft.com](https://azure.microsoft.com) |
+
+### Using Alternative Providers
+
+Witty uses OpenAI-compatible APIs, so most LLM providers work out of the box:
+
+```python
+from src.pipeline.orchestrator import formalize
+from src.witty_types import FormalizeOptions
+
+# Groq (default)
+opts = FormalizeOptions(llm_model="llama-3.3-70b-versatile")
+
+# OpenAI
+opts = FormalizeOptions(llm_provider="openai", llm_model="gpt-4o-mini")
+
+# Custom endpoint via environment variables
+import os
+os.environ["OPENAI_API_BASE"] = "https://api.together.xyz/v1"
+os.environ["OPENAI_API_KEY"] = "your_key"
+```
+
+### Mode Selection
+
+Witty has two operating modes:
+
+| Mode | Description | When to Use |
+|------|-------------|-------------|
+| **Live** (default) | Uses LLM for intelligent extraction | Production, best results |
+| **Reproducible** | Deterministic rule-based | Testing, CI/CD, consistent output |
+
+```bash
+# Live mode (default - requires API key)
+python -m src.cli --input input.txt --output result.json
+
+# Reproducible mode (no API key needed)
+python -m src.cli --input input.txt --output result.json --reproducible
+```
+
+---
+
+## Running Tests
+
+```bash
+# Run all tests
+python -m pytest tests/ -q
+
+# Skip live integration tests
+python -m pytest tests/ --ignore=tests/test_live_integration.py
+
+# With coverage
+python -m pytest tests/ --cov=src --cov-report=html
+```
+
+Current status: **537 tests passing**
+
+---
+
+## Project Structure
+
+```
+witty/
+├── src/
+│   ├── pipeline/           # Core pipeline modules
+│   │   ├── orchestrator.py     # Main entry point
+│   │   ├── orchestrator_agent.py
+│   │   ├── concision.py
+│   │   ├── cnf.py
+│   │   ├── symbolizer.py
+│   │   └── ...
+│   ├── adapters/           # LLM and retrieval adapters
+│   ├── prompts/            # LLM prompt templates
+│   ├── witty_types.py      # Type definitions
+│   └── cli.py              # Command-line interface
+├── tests/                  # Test suite
+├── examples/               # Sample inputs
+├── docs/                   # Documentation
+│   ├── API.md              # API reference
+│   └── QUICKSTART.md       # Getting started
+└── schemas/                # JSON schemas
+```
+
+---
+
+## Documentation
+
+- **[Quickstart Guide](docs/QUICKSTART.md)** - Get started in 5 minutes
+- **[API Reference](docs/API.md)** - Complete library documentation
+- **[CLI Usage Guide](docs/public/project-wide/CLI_Usage_Guide.md)** - Detailed CLI options
+- **[Examples](examples/)** - Sample input files
+
+---
+
+## License
+
+GPL-3.0 License - see [LICENSE.txt](LICENSE.txt)
+
+**Copyright © 2026 Victor Rowello**
+
+---
+
+## Contributing
+
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Run tests (`pytest`)
+4. Submit a pull request
+
+---
+
+## Acknowledgments
+
+Built with:
+- [Pydantic](https://pydantic.dev/) - Data validation
+- [spaCy](https://spacy.io/) - NLP preprocessing
+- [Groq](https://groq.com/) - LLM inference (live mode)

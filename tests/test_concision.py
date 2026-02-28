@@ -9,9 +9,10 @@ This test suite validates all aspects of the concision pipeline including:
 - Negation and quantifier preservation
 - Nested structure handling
 - Deterministic behavior and reproducibility
+- LLM structural metadata conversion (Sprint 7)
 
 Author: Victor Rowello
-Sprint: 2, Task: 2
+Sprint: 2, Task: 2; Sprint 7 additions
 """
 import pytest
 from src.pipeline.concision import (
@@ -24,6 +25,7 @@ from src.pipeline.concision import (
     ConditionalStructure,
     ConjunctionStructure,
     _generate_atomic_id,
+    _convert_llm_structural_metadata,
 )
 from src.pipeline.preprocessing import (
     preprocess,
@@ -32,6 +34,80 @@ from src.pipeline.preprocessing import (
 )
 from src.pipeline.orchestrator import AgentContext
 from src.witty_types import FormalizeOptions, ConcisionResult, ModuleResult
+
+
+class TestLLMStructuralMetadataConversion:
+    """Test conversion of LLM structural metadata format to CNF format."""
+    
+    def test_convert_implies_relationship(self):
+        """Test conversion of IMPLIES relationship."""
+        llm_metadata = {
+            "relationships": [
+                {"type": "IMPLIES", "antecedent_ids": ["c1"], "consequent_ids": ["c2"]}
+            ]
+        }
+        id_to_index = {"c1": 0, "c2": 1}
+        
+        result = _convert_llm_structural_metadata(llm_metadata, id_to_index, "conditional")
+        
+        assert "conditional" in result
+        assert result["conditional"]["antecedent_indices"] == [0]
+        assert result["conditional"]["consequent_indices"] == [1]
+        assert result["conditional"]["relation_type"] == "IMPLIES"
+        
+    def test_convert_mixed_structure(self):
+        """Test conversion of mixed AND + IMPLIES structure."""
+        llm_metadata = {
+            "relationships": [
+                {"type": "AND", "conjunct_ids": ["c1", "c2"]},
+                {"type": "IMPLIES", "antecedent_ids": ["c3"], "consequent_ids": ["c4"]}
+            ]
+        }
+        id_to_index = {"c1": 0, "c2": 1, "c3": 2, "c4": 3}
+        
+        result = _convert_llm_structural_metadata(llm_metadata, id_to_index, "mixed")
+        
+        assert result["structure_type"] == "mixed"
+        assert "conjunction" in result
+        assert result["conjunction"]["conjunct_indices"] == [0, 1]
+        assert "conditional" in result
+        assert result["conditional"]["antecedent_indices"] == [2]
+        assert result["conditional"]["consequent_indices"] == [3]
+        
+    def test_convert_unless_relationship(self):
+        """Test conversion of UNLESS relationship."""
+        llm_metadata = {
+            "relationships": [
+                {"type": "UNLESS", "antecedent_ids": ["c1"], "consequent_ids": ["c2"]}
+            ]
+        }
+        id_to_index = {"c1": 0, "c2": 1}
+        
+        result = _convert_llm_structural_metadata(llm_metadata, id_to_index, "conditional")
+        
+        assert "conditional" in result
+        assert result["conditional"]["relation_type"] == "UNLESS"
+        
+    def test_convert_biconditional(self):
+        """Test conversion of IFF relationship."""
+        llm_metadata = {
+            "relationships": [
+                {"type": "IFF", "antecedent_ids": ["c1"], "consequent_ids": ["c2"]}
+            ]
+        }
+        id_to_index = {"c1": 0, "c2": 1}
+        
+        result = _convert_llm_structural_metadata(llm_metadata, id_to_index, "biconditional")
+        
+        assert "biconditional" in result
+        assert result["biconditional"]["left_indices"] == [0]
+        assert result["biconditional"]["right_indices"] == [1]
+        
+    def test_convert_empty_metadata(self):
+        """Test handling of empty metadata."""
+        result = _convert_llm_structural_metadata({}, {}, "simple")
+        
+        assert result["structure_type"] == "simple"
 
 
 class TestConditionalDetection:

@@ -298,10 +298,11 @@ class TestAdapterRegistry:
 
     def test_get_groq_adapter_with_defaults(self):
         """Test that Groq adapter gets proper defaults."""
+        from src.adapters.groq_adapter import GroqAdapter
         adapter = get_adapter("groq", {"api_key": "test-key"})
-        assert isinstance(adapter, OpenAICompatibleAdapter)
-        assert adapter._base_url == "https://api.groq.com/openai/v1"
-        assert adapter._model == "llama-3.1-70b-versatile"
+        assert isinstance(adapter, GroqAdapter)
+        assert adapter.adapter_id == "groq"
+        assert adapter.model == "llama-3.3-70b-versatile"
 
     def test_get_together_adapter_with_defaults(self):
         """Test that Together adapter gets proper defaults."""
@@ -311,7 +312,7 @@ class TestAdapterRegistry:
 
     def test_config_overrides_defaults(self):
         """Test that user config overrides provider defaults."""
-        adapter = get_adapter("groq", {
+        adapter = get_adapter("together", {
             "api_key": "test-key",
             "model": "custom-model",
         })

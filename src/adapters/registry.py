@@ -26,10 +26,11 @@ from typing import Any, Dict, Optional, Union
 
 from .mock import MockLLMAdapter
 from .openai import OpenAICompatibleAdapter
+from .groq_adapter import GroqAdapter
 
 
 # Type alias for adapter instances
-AdapterType = Union[MockLLMAdapter, OpenAICompatibleAdapter]
+AdapterType = Union[MockLLMAdapter, OpenAICompatibleAdapter, GroqAdapter]
 
 
 # Global registry mapping adapter names to their implementation classes
@@ -37,8 +38,9 @@ AdapterType = Union[MockLLMAdapter, OpenAICompatibleAdapter]
 _REGISTRY: Dict[str, type] = {
     "mock": MockLLMAdapter,
     "openai": OpenAICompatibleAdapter,
+    # Native Groq adapter with Llama 3.3 70B
+    "groq": GroqAdapter,
     # Aliases for common OpenAI-compatible providers
-    "groq": OpenAICompatibleAdapter,
     "together": OpenAICompatibleAdapter,
     "azure": OpenAICompatibleAdapter,
 }
@@ -47,12 +49,11 @@ _REGISTRY: Dict[str, type] = {
 # Default configurations for specific providers
 _PROVIDER_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "groq": {
-        "base_url": "https://api.groq.com/openai/v1",
-        "model": "llama-3.1-70b-versatile",
+        "model": "llama-3.3-70b-versatile",
     },
     "together": {
         "base_url": "https://api.together.xyz/v1",
-        "model": "meta-llama/Llama-3.1-70B-Instruct-Turbo",
+        "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     },
     "azure": {
         # Azure requires api_version and azure_endpoint in config

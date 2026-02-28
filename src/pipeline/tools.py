@@ -193,12 +193,15 @@ class ConcisionTool(Tool):
             ctx = self.ctx or AgentContext(
                 request_id="tool_request",
                 options=FormalizeOptions(),
-                reproducible_mode=True,
+                reproducible_mode=not use_llm,
                 deterministic_salt="sprint6"
             )
             
-            # Use deterministic concision (always, for now)
-            module_result = conc_module.deterministic_concision(prep_result, ctx)
+            # Use LLM concision if requested and adapter available, else deterministic
+            if use_llm and self.llm_adapter is not None:
+                module_result = conc_module.llm_concision(prep_result, ctx, adapter=self.llm_adapter)
+            else:
+                module_result = conc_module.deterministic_concision(prep_result, ctx)
             
             # Convert atomic_candidates to JSON-safe format (remove provenance objects with datetimes)
             atomic_candidates = []

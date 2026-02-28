@@ -1,13 +1,14 @@
 # Witty CLI Usage Guide
 
-This guide provides detailed instructions for using the Witty command-line interface during Sprint 1 development.
+Complete reference for the Witty command-line interface.
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
 - [Basic Usage](#basic-usage)
 - [CLI Arguments Reference](#cli-arguments-reference)
+- [Operating Modes](#operating-modes)
+- [Enrichment Control](#enrichment-control)
 - [Configuration](#configuration)
-- [Reproducible Mode](#reproducible-mode)
 - [Output Format](#output-format)
 - [Examples](#examples)
 - [Troubleshooting](#troubleshooting)
@@ -45,47 +46,105 @@ python -m src.cli --input <INPUT_FILE> --output <OUTPUT_FILE> [OPTIONS]
 python -m src.cli --input examples/simple_conditional.txt --output result.json
 ```
 
+By default, Witty uses the **agent orchestrator** which intelligently routes through pipeline stages and auto-decides on enrichment.
+
 ---
 
 ## CLI Arguments Reference
 
 ### Required Arguments
 
-- `--input INPUT`
-  - Path to the input text file containing natural language to formalize
-  - Must be a readable text file (UTF-8 encoding recommended)
-  - Example: `--input examples/simple_conditional.txt`
-
-- `--output OUTPUT`
-  - Path where the FormalizationResult JSON will be written
-  - Will create/overwrite the file
-  - Example: `--output results/output.json`
+| Argument | Description |
+|----------|-------------|
+| `--input INPUT` | Path to input text file (UTF-8) |
+| `--output OUTPUT` | Path for output JSON file |
 
 ### Optional Arguments
 
-- `--config CONFIG`
-  - Path to a YAML configuration file
-  - Allows setting multiple options in one file
-  - Takes precedence over `.env` settings
-  - Example: `--config config/production.yaml`
+| Argument | Description |
+|----------|-------------|
+| `--config CONFIG` | Path to YAML configuration file |
+| `--env ENV` | Path to `.env` file (default: `.env`) |
+| `--verbosity {normal,debug}` | Logging level (default: `normal`) |
+| `--reproducible` | Enable deterministic mode (no external calls) |
+| `--live` | Enable live LLM mode (requires API key) |
+| `--model MODEL` | LLM model override (e.g., `llama-3.3-70b-versatile`) |
+| `--retrieval` | Force external context retrieval |
+| `--no-retrieval` | Disable auto-enrichment completely |
 
-- `--env ENV`
-  - Path to `.env` file for environment variables
-  - Default: `.env` (in current directory)
-  - Example: `--env .env.development`
+---
 
-- `--verbosity {normal|debug}`
-  - Logging verbosity level
-  - `normal`: Standard informational messages (default)
-  - `debug`: Detailed debug output including module internals
-  - Example: `--verbosity debug`
+## Operating Modes
 
-- `--reproducible`
-  - Flag to enable reproducible/deterministic mode
-  - Forces use of Mock adapters instead of live LLMs
-  - Essential for CI/CD and testing
-  - No value needed (presence = enabled)
-  - Example: `--reproducible`
+### Default Mode (Agent Orchestrator)
+
+```powershell
+python -m src.cli --input input.txt --output result.json
+```
+
+- Uses intelligent agent orchestrator
+- Agent auto-decides on enrichment based on content
+- Falls back to deterministic processing if agent fails
+
+### Reproducible Mode
+
+```powershell
+python -m src.cli --input input.txt --output result.json --reproducible
+```
+
+- Fully deterministic processing
+- No external API calls
+- Same input always produces identical output
+- Ideal for CI/CD and testing
+
+### Live Mode (LLM-Assisted)
+
+```powershell
+python -m src.cli --input input.txt --output result.json --live
+```
+
+- Uses real LLM (Groq Llama 3.3 70B by default)
+- Requires `GROQ_API_KEY` in `.env`
+- Higher quality claim extraction
+- Agent still decides on enrichment
+
+```powershell
+# With custom model
+python -m src.cli --input input.txt --output result.json --live --model llama-3.3-70b-versatile
+```
+
+---
+
+## Enrichment Control
+
+The agent automatically decides when to fetch external context (Wikipedia, DuckDuckGo) based on content analysis.
+
+### Auto-Enrichment (Default)
+
+```powershell
+python -m src.cli --input input.txt --output result.json
+```
+
+**Triggers enrichment when detecting:**
+- Domain quantifiers: "all mammals", "every country"
+- Factual claims: dates, statistics, proper nouns
+- Underspecified references: "the current president"
+
+### Force Enrichment
+
+```powershell
+python -m src.cli --input input.txt --output result.json --retrieval
+```
+
+Always fetches external context, regardless of content.
+
+### Disable Enrichment
+
+```powershell
+python -m src.cli --input input.txt --output result.json --no-retrieval
+```
+
+Agent will **never** fetch external context, even if it thinks it would help.
 
 ---
 
@@ -96,15 +155,13 @@ python -m src.cli --input examples/simple_conditional.txt --output result.json
 Create a `.env` file in your project root:
 
 ```env
-REPRODUCIBLE_MODE=true
-VERBOSITY=debug
-LLM_PROVIDER=mock
-```
+# LLM Configuration (for --live mode)
+GROQ_API_KEY=your_api_key_here
+LLM_MODEL=llama-3.3-70b-versatile
 
-Then run:
-
-```powershell
-python -m src.cli --input examples/simple_conditional.txt --output result.json --env .env
+# Pipeline defaults
+REPRODUCIBLE_MODE=false
+PRIVACY_MODE=default
 ```
 
 ### Using YAML Configuration
@@ -112,54 +169,24 @@ python -m src.cli --input examples/simple_conditional.txt --output result.json -
 Create a configuration file (e.g., `config.yaml`):
 
 ```yaml
-retrieval_enabled: false
-top_k_symbolizations: 3
-llm_provider: mock
-verbosity: debug
 reproducible_mode: true
+verbosity: debug
 privacy_mode: default
+no_retrieval: false
 ```
 
 Run with:
 
 ```powershell
-python -m src.cli --input examples/simple_conditional.txt --output result.json --config config.yaml
+python -m src.cli --input input.txt --output result.json --config config.yaml
 ```
 
 ### Configuration Priority
-
-When multiple configuration sources are present, priority is:
 
 1. Command-line arguments (highest)
 2. YAML config file
 3. .env file
 4. Default values (lowest)
-
----
-
-## Reproducible Mode
-
-**Reproducible mode** ensures deterministic behavior across runs, critical for:
-- Continuous Integration (CI)
-- Automated testing
-- Demos and presentations
-- Debugging
-
-When enabled (`--reproducible` flag or `reproducible_mode: true` in config):
-- All LLM calls use Mock adapter with fixed responses
-- No network calls are made
-- Same input always produces identical output
-- No API keys required
-
-**Example**:
-
-```powershell
-python -m src.cli `
-  --input examples/simple_conditional.txt `
-  --output result.json `
-  --reproducible `
-  --verbosity debug
-```
 
 ---
 
@@ -169,61 +196,70 @@ The CLI writes a JSON file conforming to the `FormalizationResult` schema.
 
 ### Key Fields
 
-- **request_id**: Unique identifier for this formalization request
-- **original_text**: Exact input text as provided
-- **canonical_text**: Normalized/cleaned version of input
-- **atomic_claims**: Array of extracted minimal claims
-  - Each claim has: `text`, `symbol`, `origin_spans`, `modal_context`, `provenance`
-- **legend**: Dictionary mapping symbols (P1, P2...) to claim text
-- **logical_form_candidates**: Array of proposed logical forms (AST + notation)
-- **chosen_logical_form**: The selected logical form from candidates
-- **cnf**: Conjunctive Normal Form string representation
-- **cnf_clauses**: CNF broken into individual clauses (array of arrays)
-- **modal_metadata**: Information about modal operators detected
-- **warnings**: Array of warning messages (non-fatal issues)
-- **confidence**: Overall confidence score (0.0 to 1.0)
-- **provenance**: Complete tracking of all transformations
+| Field | Description |
+|-------|-------------|
+| `request_id` | Unique identifier for this request |
+| `original_text` | Exact input text as provided |
+| `canonical_text` | Normalized/cleaned version |
+| `atomic_claims` | Extracted minimal claims with symbols |
+| `legend` | Symbol → claim text mapping |
+| `cnf` | CNF formula string (e.g., `¬P1 ∨ P2`) |
+| `cnf_clauses` | CNF as nested lists |
+| `modal_metadata` | Modal operators by symbol |
+| `confidence` | Overall confidence (0.0 to 1.0) |
+| `warnings` | Non-fatal issues encountered |
+| `provenance` | Complete transformation history |
 
 ### Example Output
 
 ```json
 {
-  "request_id": "req_20251104_001",
-  "original_text": "If Alice owns a red car, then Alice prefers driving.",
-  "canonical_text": "If Alice owns a red car, then Alice prefers driving.",
+  "request_id": "req_20260228120000",
+  "original_text": "If it rains, the match is cancelled.",
+  "canonical_text": "If it rains, the match is cancelled.",
   "atomic_claims": [
     {
-      "text": "Alice owns a red car",
+      "text": "it rains",
       "symbol": "P1",
-      "origin_spans": [[3, 24]],
+      "origin_spans": [[3, 11]],
       "modal_context": null
     },
     {
-      "text": "Alice prefers driving",
+      "text": "the match is cancelled",
       "symbol": "P2",
-      "origin_spans": [[31, 52]],
+      "origin_spans": [[13, 35]],
       "modal_context": null
     }
   ],
   "legend": {
-    "P1": "Alice owns a red car",
-    "P2": "Alice prefers driving"
-  },
-  "chosen_logical_form": {
-    "ast": {
-      "type": "IMPLIES",
-      "left": {"type": "ATOM", "symbol": "P1"},
-      "right": {"type": "ATOM", "symbol": "P2"}
-    },
-    "notation": "P1 → P2",
-    "confidence": 0.95
+    "P1": "it rains",
+    "P2": "the match is cancelled"
   },
   "cnf": "¬P1 ∨ P2",
   "cnf_clauses": [["¬P1", "P2"]],
+  "modal_metadata": {},
   "confidence": 0.95,
   "warnings": []
 }
 ```
+
+### Modal Logic Output
+
+For statements with modal operators:
+
+```json
+{
+  "legend": {"P1": "squares are rectangles"},
+  "cnf": "□P1",
+  "modal_metadata": {"P1": "NECESSARY"}
+}
+```
+
+Supported modal operators:
+- `□` (NECESSARY) - "necessarily", "must be"
+- `◇` (POSSIBLE) - "possibly", "might be"
+- `¬□` (NOT_NECESSARY) - "not necessarily"
+- `¬◇` (NOT_POSSIBLE) - "impossible", "cannot"
 
 ---
 
@@ -231,43 +267,50 @@ The CLI writes a JSON file conforming to the `FormalizationResult` schema.
 
 ### Example 1: Simple Conditional
 
-**Input** (`examples/simple_conditional.txt`):
-```
-If Alice owns a red car, then Alice prefers driving.
-```
-
-**Command**:
 ```powershell
-python -m src.cli --input examples/simple_conditional.txt --output simple_out.json --reproducible
+echo "If it rains, the match is cancelled." > input.txt
+python -m src.cli --input input.txt --output result.json --reproducible
 ```
 
-**Expected**: Two atomic claims with implication relationship, CNF: `¬P1 ∨ P2`
+**Result**: CNF `¬P1 ∨ P2`
 
 ---
 
-### Example 2: Modal Statement with Debug Logging
+### Example 2: Modal Statement
 
-**Input** (`examples/modal_necessity.txt`):
-```
-It is necessary that all students attend the safety briefing before participating in the lab experiment.
+```powershell
+echo "Squares are necessarily rectangles." > input.txt
+python -m src.cli --input input.txt --output result.json --reproducible
 ```
 
-**Command**:
+**Result**: CNF `□P1`, modal_metadata `{"P1": "NECESSARY"}`
+
+---
+
+### Example 3: Live Mode with Debug
+
 ```powershell
 python -m src.cli `
-  --input examples/modal_necessity.txt `
-  --output modal_out.json `
-  --reproducible `
+  --input examples/causal_chain.txt `
+  --output result.json `
+  --live `
   --verbosity debug
 ```
 
-**Expected**: Claims with modal metadata, detailed logging in console
+---
+
+### Example 4: Force Enrichment
+
+```powershell
+echo "All mammals are warm-blooded." > input.txt
+python -m src.cli --input input.txt --output result.json --live --retrieval
+```
+
+Fetches context from Wikipedia/DuckDuckGo to enrich the formalization.
 
 ---
 
-### Example 3: Batch Processing Multiple Files
-
-Create a simple script (`process_all.ps1`):
+### Example 5: Batch Processing
 
 ```powershell
 $examples = Get-ChildItem -Path examples -Filter *.txt
@@ -281,33 +324,6 @@ foreach ($file in $examples) {
       --output $outputName `
       --reproducible
 }
-
-Write-Host "All files processed!"
-```
-
-Run:
-```powershell
-.\process_all.ps1
-```
-
----
-
-### Example 4: Using Custom Configuration
-
-**config.yaml**:
-```yaml
-reproducible_mode: true
-verbosity: debug
-top_k_symbolizations: 5
-privacy_mode: strict
-```
-
-**Command**:
-```powershell
-python -m src.cli `
-  --input examples/causal_chain.txt `
-  --output causal_out.json `
-  --config config.yaml
 ```
 
 ---
@@ -318,132 +334,88 @@ python -m src.cli `
 
 **Issue**: `ModuleNotFoundError: No module named 'src'`
 
-**Solution**: Ensure you're running from the project root and using `python -m src.cli` (not `python src/cli.py`)
+**Solution**: Run from the project root using `python -m src.cli`
 
 ---
 
 **Issue**: `FileNotFoundError: Input file not found`
 
-**Solution**: Check the input file path. Use absolute paths or paths relative to the current directory:
+**Solution**: Check the input file path. Use absolute paths if needed:
 ```powershell
-python -m src.cli --input .\examples\simple_conditional.txt --output result.json
+python -m src.cli --input C:\full\path\to\input.txt --output result.json
 ```
 
 ---
 
-**Issue**: Output file not created
+**Issue**: Rate limit errors in live mode
 
-**Solution**: 
-- Check that you have write permissions in the output directory
-- Create the output directory if it doesn't exist:
-  ```powershell
-  New-Item -ItemType Directory -Path outputs -Force
-  python -m src.cli --input examples/simple_conditional.txt --output outputs/result.json
-  ```
+**Solution**: Groq free tier has 100k tokens/day. Use `--reproducible` for unlimited deterministic processing, or wait for rate limit reset.
 
 ---
 
 **Issue**: Want to see what's happening internally
 
-**Solution**: Use `--verbosity debug` to see detailed pipeline execution:
+**Solution**: Use `--verbosity debug`:
 ```powershell
-python -m src.cli --input examples/simple_conditional.txt --output result.json --verbosity debug
+python -m src.cli --input input.txt --output result.json --verbosity debug
 ```
 
 ---
 
 **Issue**: Output varies between runs
 
-**Solution**: Use `--reproducible` flag to ensure deterministic behavior:
+**Solution**: Use `--reproducible` for deterministic behavior:
 ```powershell
-python -m src.cli --input examples/simple_conditional.txt --output result.json --reproducible
+python -m src.cli --input input.txt --output result.json --reproducible
+```
+
+---
+
+**Issue**: Agent using enrichment when I don't want it
+
+**Solution**: Use `--no-retrieval` to disable auto-enrichment:
+```powershell
+python -m src.cli --input input.txt --output result.json --no-retrieval
 ```
 
 ---
 
 ### Getting Help
 
-View all available options:
 ```powershell
+# View all options
 python -m src.cli --help
-```
 
-Check Python and dependencies:
-```powershell
+# Check installation
 python --version
-pip list | Select-String "pydantic|pytest"
-```
+pip list | Select-String "pydantic|spacy"
 
-Run tests to verify installation:
-```powershell
-pytest tests/ -v
+# Run tests
+python -m pytest tests/ -q
 ```
 
 ---
 
-## Advanced Usage
+## Programmatic Usage
 
-### Programmatic API
-
-While the CLI is the primary interface for Sprint 1, you can also call the pipeline directly from Python:
+For library usage instead of CLI, see [API Reference](../../API.md):
 
 ```python
-from src.pipeline.orchestrator import formalize_statement
-from src.witty.types import FormalizeOptions
+from src.pipeline.orchestrator import formalize
+from src.witty_types import FormalizeOptions
 
-# Configure options
-options = FormalizeOptions(
-    reproducible_mode=True,
-    verbosity="debug"
-)
-
-# Run formalization
-result = formalize_statement(
-    input_text="If Alice owns a red car, then Alice prefers driving.",
-    options=options
-)
-
-# Access results
-print(f"Confidence: {result.confidence}")
-print(f"CNF: {result.cnf}")
-for claim in result.atomic_claims:
-    print(f"{claim.symbol}: {claim.text}")
-```
-
-### Integration with Testing
-
-Use the CLI in integration tests:
-
-```python
-import subprocess
-import json
-
-def test_cli_simple_conditional():
-    result = subprocess.run([
-        "python", "-m", "src.cli",
-        "--input", "examples/simple_conditional.txt",
-        "--output", "test_output.json",
-        "--reproducible"
-    ], capture_output=True, text=True)
-    
-    assert result.returncode == 0
-    
-    with open("test_output.json") as f:
-        output = json.load(f)
-    
-    assert output["confidence"] > 0.8
-    assert len(output["atomic_claims"]) == 2
+result = formalize("If it rains, the match is cancelled.")
+print(result.cnf)  # ¬P1 ∨ P2
 ```
 
 ---
 
-## Next Steps
+## See Also
 
-- Review the [Design Specification](DesignSpec_forCopilot_v4.md) for detailed pipeline architecture
-- Explore [Sprint 1 Plan](sprint1_plan.md) for development roadmap
-- Check [examples/README.md](../examples/README.md) for more input examples
-- See [tests/fixtures/README.json](../tests/fixtures/README.json) for expected output formats
+- [Quickstart Guide](../../QUICKSTART.md) - Get started in 5 minutes
+- [API Reference](../../API.md) - Complete library documentation
+- [Examples](../../../examples/) - Sample input files
 
 ---
 
-*Last updated: November 4, 2025 - Sprint 1*
+*Last updated: February 28, 2026 - v1.0*

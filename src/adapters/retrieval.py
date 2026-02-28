@@ -235,6 +235,26 @@ RETRIEVAL_ADAPTERS: Dict[str, type] = {
     "vector": VectorRetrievalAdapter,
 }
 
+# Lazy imports for live adapters to avoid import overhead if not used
+def _get_wikipedia_adapter():
+    from src.adapters.wikipedia import WikipediaAdapter
+    return WikipediaAdapter
+
+def _get_duckduckgo_adapter():
+    from src.adapters.duckduckgo import DuckDuckGoAdapter
+    return DuckDuckGoAdapter
+
+def _get_composite_adapter():
+    from src.adapters.composite import CompositeRetrievalAdapter
+    return CompositeRetrievalAdapter
+
+
+LIVE_RETRIEVAL_ADAPTERS: Dict[str, callable] = {
+    "wikipedia": _get_wikipedia_adapter,
+    "duckduckgo": _get_duckduckgo_adapter,
+    "composite": _get_composite_adapter,
+}
+
 
 def get_retrieval_adapter(
     adapter_type: str = "mock",
@@ -244,13 +264,22 @@ def get_retrieval_adapter(
     Factory function to get a retrieval adapter.
     
     Args:
-        adapter_type: Type of adapter ('mock', 'vector')
+        adapter_type: Type of adapter ('mock', 'vector', 'wikipedia', 
+                      'duckduckgo', 'composite')
         **kwargs: Additional arguments for the adapter
         
     Returns:
         Configured retrieval adapter instance
     """
+    # Check standard adapters first
     adapter_cls = RETRIEVAL_ADAPTERS.get(adapter_type)
-    if adapter_cls is None:
-        raise ValueError(f"Unknown retrieval adapter type: {adapter_type}")
-    return adapter_cls(**kwargs)
+    if adapter_cls is not None:
+        return adapter_cls(**kwargs)
+    
+    # Check live adapters (lazy loaded)
+    adapter_getter = LIVE_RETRIEVAL_ADAPTERS.get(adapter_type)
+    if adapter_getter is not None:
+        adapter_cls = adapter_getter()
+        return adapter_cls(**kwargs)
+    
+    raise ValueError(f"Unknown retrieval adapter type: {adapter_type}")

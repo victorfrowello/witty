@@ -20,7 +20,7 @@ if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
 # Import pipeline orchestrator and typed models
-from src.pipeline.orchestrator import formalize_statement
+from src.pipeline.orchestrator import formalize
 from src.witty.types import FormalizeOptions, FormalizationResult
 
 # Optional dependencies - loaded dynamically to avoid hard requirements
@@ -126,6 +126,27 @@ def main() -> None:
         action='store_true',
         help='Enable reproducible mode with deterministic pipeline behavior'
     )
+    parser.add_argument(
+        '--live',
+        action='store_true',
+        help='Enable live mode with real LLM (Groq/Llama 3.3) and retrieval (Wikipedia/DuckDuckGo)'
+    )
+    parser.add_argument(
+        '--model',
+        default=None,
+        help='LLM model to use in live mode (default: llama-3.3-70b-versatile)'
+    )
+    parser.add_argument(
+        '--retrieval',
+        action='store_true',
+        help='Force knowledge retrieval from Wikipedia and DuckDuckGo'
+    )
+    parser.add_argument(
+        '--no-retrieval',
+        action='store_true',
+        dest='no_retrieval',
+        help='Disable automatic retrieval (agent will not fetch external context even if it thinks it would help)'
+    )
     args = parser.parse_args()
 
     # Configure logging based on verbosity
@@ -148,6 +169,21 @@ def main() -> None:
     options = FormalizeOptions(**options_dict)
     options.reproducible_mode = args.reproducible
     options.verbosity = args.verbosity
+    
+    # Sprint 7: Live mode options
+    if args.live:
+        options.live_mode = True
+        options.reproducible_mode = False  # Live mode is not reproducible
+        if args.model:
+            options.llm_model = args.model
+        if args.retrieval:
+            options.retrieval_enabled = True
+        logging.info(f"Live mode enabled with model: {options.llm_model or 'llama-3.3-70b-versatile'}")
+    
+    # Retrieval opt-out (agent auto-decides by default)
+    if args.no_retrieval:
+        options.no_retrieval = True
+        logging.info("Retrieval disabled by user (--no-retrieval)")
 
     # Read input text from file
     try:
@@ -164,7 +200,7 @@ def main() -> None:
     # Execute formalization pipeline
     try:
         logging.info("Starting formalization pipeline")
-        result: FormalizationResult = formalize_statement(input_text, options)
+        result: FormalizationResult = formalize(input_text, options)
         logging.info("Formalization completed successfully")
     except Exception as e:
         logging.error(f"Pipeline execution failed: {e}", exc_info=True)

@@ -14,12 +14,15 @@ Pipeline Stages:
 All stages produce ModuleResult objects with comprehensive ProvenanceRecord
 tracking for transparency and debugging.
 
+Sprint 7: Added live mode with Groq LLM and Wikipedia/DuckDuckGo retrieval.
+
 Author: Victor Rowello
 """
 from __future__ import annotations
 
 import hashlib
 import datetime
+import logging
 from typing import Any, Dict, Optional
 
 from src.witty_types import (
@@ -29,6 +32,72 @@ from src.witty_types import (
     FormalizeOptions,
     AtomicClaim,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _convert_indices_to_symbols(
+    structural_metadata: Dict[str, Any],
+    atomic_claims: list
+) -> Dict[str, Any]:
+    """
+    Convert claim indices in structural_metadata to symbols after symbolization.
+    
+    This bridges the gap between:
+    - LLM output: uses claim IDs (c1, c2) -> converted to indices (0, 1)
+    - CNF module input: needs symbols (P1, P2)
+    
+    Args:
+        structural_metadata: Metadata from concision with indices
+        atomic_claims: List of AtomicClaim objects with assigned symbols
+        
+    Returns:
+        Updated metadata with symbols instead of indices
+    """
+    if not structural_metadata or not atomic_claims:
+        return structural_metadata
+    
+    result = dict(structural_metadata)
+    
+    # Helper to convert indices to symbols
+    def indices_to_symbols(indices: list) -> list:
+        symbols = []
+        for idx in indices:
+            if isinstance(idx, int) and 0 <= idx < len(atomic_claims):
+                claim = atomic_claims[idx]
+                if hasattr(claim, 'symbol') and claim.symbol:
+                    symbols.append(claim.symbol)
+        return symbols
+    
+    # Convert conditional indices to claims (symbols)
+    if "conditional" in result:
+        cond = result["conditional"]
+        if "antecedent_indices" in cond:
+            cond["antecedent_claims"] = indices_to_symbols(cond["antecedent_indices"])
+        if "consequent_indices" in cond:
+            cond["consequent_claims"] = indices_to_symbols(cond["consequent_indices"])
+    
+    # Convert biconditional indices
+    if "biconditional" in result:
+        bicon = result["biconditional"]
+        if "left_indices" in bicon:
+            bicon["left_claims"] = indices_to_symbols(bicon["left_indices"])
+        if "right_indices" in bicon:
+            bicon["right_claims"] = indices_to_symbols(bicon["right_indices"])
+    
+    # Convert conjunction indices
+    if "conjunction" in result:
+        conj = result["conjunction"]
+        if "conjunct_indices" in conj:
+            conj["conjunct_claims"] = indices_to_symbols(conj["conjunct_indices"])
+    
+    # Convert disjunction indices
+    if "disjunction" in result:
+        disj = result["disjunction"]
+        if "disjunct_indices" in disj:
+            disj["disjunct_claims"] = indices_to_symbols(disj["disjunct_indices"])
+    
+    return result
 
 
 def make_provenance_id(
@@ -95,6 +164,47 @@ class AgentContext:
         self.reproducible_mode = reproducible_mode
         self.deterministic_salt = deterministic_salt
         self.logger = logger
+
+
+def _create_live_adapters(options: FormalizeOptions) -> tuple:
+    """
+    Create live LLM and retrieval adapters based on options.
+    
+    Sprint 7: Factory function for live integration adapters.
+    
+    Args:
+        options: Pipeline options with live_mode settings
+        
+    Returns:
+        Tuple of (llm_adapter, retrieval_adapter) or (None, None) if not live mode
+    """
+    if not getattr(options, 'live_mode', False):
+        return None, None
+    
+    llm_adapter = None
+    retrieval_adapter = None
+    
+    # Create LLM adapter (Groq with Llama 3.3 by default)
+    try:
+        from src.adapters.groq_adapter import GroqAdapter
+        model = getattr(options, 'llm_model', None) or "llama-3.3-70b-versatile"
+        llm_adapter = GroqAdapter(model=model)
+        logger.info(f"Live LLM adapter created: Groq with {model}")
+    except Exception as e:
+        logger.warning(f"Failed to create Groq adapter: {e}")
+    
+    # Create retrieval adapter (Composite with Wikipedia + DuckDuckGo)
+    if getattr(options, 'retrieval_enabled', False):
+        try:
+            from src.adapters.composite import CompositeRetrievalAdapter
+            
+            # CompositeRetrievalAdapter creates its own Wikipedia + DuckDuckGo adapters
+            retrieval_adapter = CompositeRetrievalAdapter()
+            logger.info("Live retrieval adapter created: CompositeRetrievalAdapter (Wikipedia + DuckDuckGo)")
+        except Exception as e:
+            logger.warning(f"Failed to create retrieval adapter: {e}")
+    
+    return llm_adapter, retrieval_adapter
 
 
 
@@ -467,9 +577,19 @@ def formalize_statement(
             origin_spans={}
         )
     
+    # Sprint 7: Create live adapters if in live mode
+    llm_adapter, retrieval_adapter = _create_live_adapters(options)
+    live_mode = getattr(options, 'live_mode', False)
+    
     # Stage 2: Concision - extract atomic claims with structural decomposition
     try:
-        conc_module_result = conc_module.deterministic_concision(prep_result, ctx)
+        if live_mode and llm_adapter is not None:
+            # Use LLM-assisted concision in live mode
+            logger.info("Using LLM concision (live mode)")
+            conc_module_result = conc_module.llm_concision(prep_result, ctx, adapter=llm_adapter)
+        else:
+            # Use deterministic concision for reproducibility
+            conc_module_result = conc_module.deterministic_concision(prep_result, ctx)
         # Extract ConcisionResult from the payload dict
         from src.witty_types import ConcisionResult
         concision_result = ConcisionResult(**conc_module_result.payload)
@@ -546,6 +666,12 @@ def formalize_statement(
     if hasattr(concision_result, 'structural_metadata'):
         structural_metadata = concision_result.structural_metadata
     
+    # Convert structural_metadata indices to symbols after symbolization
+    structural_metadata = _convert_indices_to_symbols(
+        structural_metadata,
+        symbolizer_result.atomic_claims
+    )
+    
     if symbolizer_result.legend:
         try:
             cnf_result = cnf_module.cnf_transform(
@@ -558,6 +684,7 @@ def formalize_statement(
             cnf_data = CNFResult(**cnf_result.payload)
             cnf = cnf_data.cnf_string
             cnf_clauses = cnf_data.cnf_clauses
+            cnf_modal_atoms = cnf_data.modal_atoms  # Compound modal expansions
             all_provenance.append(cnf_result.provenance_record)
             all_warnings.extend(cnf_result.warnings)
         except Exception as e:
@@ -566,6 +693,7 @@ def formalize_statement(
             symbols = list(symbolizer_result.legend.keys())
             cnf = " ∧ ".join(symbols)
             cnf_clauses = [[symbol] for symbol in symbols]
+            cnf_modal_atoms = {}
     
     # Stage 6: Validation (Sprint 3)
     entity_groundings = None
@@ -593,14 +721,27 @@ def formalize_statement(
         all_warnings.append(f"Validation failed: {str(e)}")
     
     # Stage 7: Assemble FormalizationResult
-    # Build logical form candidates
+    # Build logical form candidates with modal operators
     logical_form_candidates = []
     if symbolizer_result.legend:
         # Create a simple logical form using the legend
-        notation = " ∧ ".join([
-            f"{sym}:{text[:30]}..." if len(text) > 30 else f"{sym}:{text}"
-            for sym, text in symbolizer_result.legend.items()
-        ])
+        # Include modal operators if present
+        notation_parts = []
+        for claim in symbolizer_result.atomic_claims:
+            if claim.symbol:
+                sym = claim.symbol
+                text = claim.text
+                text_display = f"{text[:30]}..." if len(text) > 30 else text
+                
+                # Add modal operator prefix if present
+                if claim.modal_context == "NECESSARY":
+                    notation_parts.append(f"□{sym}:{text_display}")
+                elif claim.modal_context == "POSSIBLE":
+                    notation_parts.append(f"◇{sym}:{text_display}")
+                else:
+                    notation_parts.append(f"{sym}:{text_display}")
+        
+        notation = " ∧ ".join(notation_parts)
         logical_form_candidates.append({
             "ast": {},  # Reserved for future implementation
             "notation": notation,
@@ -623,6 +764,24 @@ def formalize_statement(
     # Build final FormalizationResult
     # Convert nested Pydantic models to dicts for proper validation
     # Include config_metadata for reproducibility (DevPlan Sprint 3 requirement)
+    
+    # Extract modal metadata from claims for programmatic access
+    # Simple modals: symbol -> "NECESSARY" or "POSSIBLE"
+    # Compound modals: symbol -> {"operator": ..., "scope": {...}, "text": ...}
+    modal_metadata = {}
+    for claim in symbolizer_result.atomic_claims:
+        if claim.symbol and claim.modal_context:
+            if claim.modal_scope:
+                # Compound modal - include full expansion
+                modal_metadata[claim.symbol] = {
+                    "operator": claim.modal_context,
+                    "scope": claim.modal_scope,
+                    "text": claim.text
+                }
+            else:
+                # Simple modal - just the operator
+                modal_metadata[claim.symbol] = claim.modal_context
+    
     result = FormalizationResult.model_validate({
         "request_id": request_id,
         "original_text": input_text,
@@ -633,6 +792,7 @@ def formalize_statement(
         "chosen_logical_form": chosen_logical_form,
         "cnf": cnf,
         "cnf_clauses": cnf_clauses,
+        "modal_metadata": modal_metadata,
         "confidence": overall_confidence,
         "provenance": [prov.model_dump() for prov in all_provenance],
         "warnings": all_warnings,
@@ -641,6 +801,54 @@ def formalize_statement(
     
     # Ensure we return the validated Pydantic instance, not a dict
     return result
+
+
+def formalize(
+    input_text: str,
+    options: Optional[FormalizeOptions] = None
+) -> FormalizationResult:
+    """
+    Main entry point for formalization - uses agent orchestrator by default.
+    
+    This function attempts to use the agent-based orchestrator first for
+    intelligent pipeline execution, and falls back to the classic deterministic
+    orchestrator if the agent fails or is unavailable.
+    
+    Args:
+        input_text: Natural language statement to formalize
+        options: Configuration options controlling pipeline behavior.
+                 If None, uses default FormalizeOptions.
+        
+    Returns:
+        FormalizationResult containing symbols, legend, logical forms, CNF,
+        and complete provenance chain for all transformations
+        
+    Example:
+        >>> result = formalize("If it rains then the match is cancelled.")
+        >>> print(result.legend)
+        {'P1': 'it rains', 'P2': 'the match is cancelled'}
+        
+    Note:
+        - Agent orchestrator is tried first (supports enrichment, intelligent routing)
+        - Falls back to classic deterministic orchestrator on failure
+        - In reproducible_mode, always uses classic orchestrator
+    """
+    if options is None:
+        options = FormalizeOptions()
+    
+    # In reproducible mode, use classic orchestrator directly for consistency
+    if getattr(options, 'reproducible_mode', False):
+        logger.info("Using classic orchestrator (reproducible mode)")
+        return formalize_statement(input_text, options)
+    
+    # Try agent orchestrator first
+    try:
+        from src.pipeline.orchestrator_agent import formalize_with_agent
+        logger.info("Using agent orchestrator (default)")
+        return formalize_with_agent(input_text, options)
+    except Exception as e:
+        logger.warning(f"Agent orchestrator failed, falling back to classic: {e}")
+        return formalize_statement(input_text, options)
 
 
 # Script execution support for debugging and development
@@ -654,6 +862,6 @@ if __name__ == "__main__":
         "She said she doesn't like long trips."
     )
     
-    result = formalize_statement(text, opts)
+    result = formalize(text, opts)
     print(result.model_dump_json(indent=2))
 

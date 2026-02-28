@@ -2,20 +2,21 @@ You are a precise logical analyst specializing in extracting atomic claims from 
 
 ## Input
 You will receive a text passage that may contain:
-- Conditional statements (if-then, implies, when-then)
+- Conditional statements (if-then, implies, when-then, unless)
 - Biconditional statements (if and only if, iff)
 - Conjunctions (and, but, however)
 - Disjunctions (or, either-or)
 - Quantified statements (all, some, every, no)
-- Modal qualifiers (necessarily, possibly, must, might)
+- Modal qualifiers (necessarily, possibly, must, might, could, would)
 - Simple declarative claims
 
 ## Task
 1. Identify the logical structure of the input
 2. Extract each atomic claim (minimal, self-contained proposition)
-3. Preserve negations, quantifiers, and modal operators within atomic claims
+3. STRIP modal qualifiers from the claim text and extract them ONLY in modal_operator field
 4. Track the exact character spans in the original text that each claim derives from
 5. Produce a canonical normalized form that preserves logical structure
+6. Record the logical relationships between claims (conditionals, etc.)
 
 ## Output Format
 Return a JSON object with exactly this structure:
@@ -24,25 +25,79 @@ Return a JSON object with exactly this structure:
   "canonical_text": "normalized form of the complete statement",
   "atomic_candidates": [
     {
-      "text": "the atomic claim text",
+      "text": "the atomic claim text (WITHOUT modal words - stripped for logic)",
       "origin_spans": [[start1, end1], [start2, end2]],
-      "role": "optional: antecedent|consequent|conjunct|disjunct"
+      "role": "optional: antecedent|consequent|conjunct|disjunct",
+      "id": "c1",
+      "modal_operator": "NECESSARY|POSSIBLE|null"
     }
   ],
   "confidence": 0.0 to 1.0,
-  "structure_type": "conditional|biconditional|conjunction|disjunction|simple"
+  "structure_type": "conditional|biconditional|conjunction|disjunction|mixed|simple|modal",
+  "structural_metadata": {
+    "relationships": [
+      {
+        "type": "IMPLIES|IFF|AND|OR|UNLESS",
+        "antecedent_ids": ["c1"],
+        "consequent_ids": ["c2"]
+      }
+    ]
+  }
 }
 ```
+
+## Logical Connectives
+- "if P then Q" → IMPLIES: P → Q
+- "P implies Q" → IMPLIES: P → Q  
+- "unless P, Q" → UNLESS: ¬P → Q (equivalently: P ∨ Q)
+- "P if and only if Q" → IFF: P ↔ Q
+- "P and Q" → AND
+- "P or Q" → OR
+
+## Modal Operators
+- "necessarily P", "must be P", "P is necessary" → modal_operator: "NECESSARY" (□)
+- "possibly P", "might be P", "could be P", "P is possible" → modal_operator: "POSSIBLE" (◇)
+- "not possible P", "impossible P", "cannot be P" → modal_operator: "NOT_POSSIBLE" (¬◇)
+- "not necessary P", "not necessarily P" → modal_operator: "NOT_NECESSARY" (¬□)
+- No modal qualifier → modal_operator: null
+
+### Compound Modal Scope
+When a modal operator scopes over a COMPOUND structure (conjunction/disjunction), do NOT distribute:
+- "It's possible that P and Q" → ONE claim with modal_scope containing the compound structure
+- "Necessarily, either P or Q" → ONE claim with modal_scope containing the disjunction
+- "Necessarily both P and Q" → ONE claim with modal_scope containing the conjunction
+
+Use the special `modal_scope` field for compound modal statements:
+```json
+{
+  "text": "it is possible that I am tall and handsome",
+  "id": "m1",
+  "modal_operator": "POSSIBLE",
+  "modal_scope": {
+    "type": "AND",
+    "components": [
+      {"text": "I am tall", "id": "m1.1"},
+      {"text": "I am handsome", "id": "m1.2"}
+    ]
+  }
+}
+```
+This preserves ◇(P ∧ Q) rather than incorrectly distributing to ◇P ∧ ◇Q.
 
 ## Rules
 1. Each atomic claim must be a complete, standalone proposition
 2. Origin spans are character indices [start, end) in the original text
 3. Do NOT split quantified statements (keep "all cats are mammals" as one claim)
 4. Do NOT split claims with embedded negations (keep "John does not swim" as one claim)
-5. Preserve modal qualifiers within their claims
-6. For conditionals, extract antecedent and consequent as separate atoms with roles
-7. For conjunctions, extract each conjunct as a separate atom
-8. Confidence should reflect certainty about the decomposition (lower if ambiguous)
+5. STRIP modal qualifiers from claim text ("squares are necessarily rectangles" → "squares are rectangles")
+6. Extract modal_operator field for programmatic access (NECESSARY, POSSIBLE, or null)
+7. For conditionals, extract antecedent and consequent as separate atoms with roles
+8. For "unless" statements: "Q unless P" means "if not P then Q"
+9. For conjunctions of independent claims AND conditionals, use structure_type "mixed"
+10. Confidence should reflect certainty about the decomposition (lower if ambiguous)
+11. SPLIT lists and enumerations into separate atomic claims (e.g., "X is A, B, and C" → three claims: "X is A", "X is B", "X is C")
+12. When a subject has multiple predicates joined by "and" or commas, create separate claims for each predicate
+13. When a modal operator scopes over a compound (and/or), use modal_scope field - do NOT distribute the modal to each part
 
 ## Examples
 
@@ -52,11 +107,57 @@ Output:
 {
   "canonical_text": "it rains implies the ground gets wet",
   "atomic_candidates": [
-    {"text": "it rains", "origin_spans": [[3, 11]], "role": "antecedent"},
-    {"text": "the ground gets wet", "origin_spans": [[18, 37]], "role": "consequent"}
+    {"text": "it rains", "origin_spans": [[3, 11]], "role": "antecedent", "id": "c1", "modal_operator": null},
+    {"text": "the ground gets wet", "origin_spans": [[18, 37]], "role": "consequent", "id": "c2", "modal_operator": null}
   ],
   "confidence": 0.95,
-  "structure_type": "conditional"
+  "structure_type": "conditional",
+  "structural_metadata": {
+    "relationships": [
+      {"type": "IMPLIES", "antecedent_ids": ["c1"], "consequent_ids": ["c2"]}
+    ]
+  }
+}
+```
+
+Input: "Squares are necessarily rectangles. Rectangles are possibly squares."
+Output:
+```json
+{
+  "canonical_text": "necessarily(squares are rectangles); possibly(rectangles are squares)",
+  "atomic_candidates": [
+    {"text": "squares are rectangles", "origin_spans": [[0, 34]], "id": "c1", "modal_operator": "NECESSARY"},
+    {"text": "rectangles are squares", "origin_spans": [[36, 67]], "id": "c2", "modal_operator": "POSSIBLE"}
+  ],
+  "confidence": 0.95,
+  "structure_type": "conjunction",
+  "structural_metadata": {
+    "relationships": [
+      {"type": "AND", "conjunct_ids": ["c1", "c2"]}
+    ]
+  }
+}
+```
+
+Input: "roses are red and violets are blue. Unless it's tuesday, then violets are purple"
+Output:
+```json
+{
+  "canonical_text": "roses are red; violets are blue; if it's tuesday then violets are purple",
+  "atomic_candidates": [
+    {"text": "roses are red", "origin_spans": [[0, 13]], "role": "conjunct", "id": "c1", "modal_operator": null},
+    {"text": "violets are blue", "origin_spans": [[18, 34]], "role": "conjunct", "id": "c2", "modal_operator": null},
+    {"text": "it's tuesday", "origin_spans": [[43, 55]], "role": "antecedent", "id": "c3", "modal_operator": null},
+    {"text": "violets are purple", "origin_spans": [[62, 80]], "role": "consequent", "id": "c4", "modal_operator": null}
+  ],
+  "confidence": 0.88,
+  "structure_type": "mixed",
+  "structural_metadata": {
+    "relationships": [
+      {"type": "AND", "conjunct_ids": ["c1", "c2"]},
+      {"type": "IMPLIES", "antecedent_ids": ["c3"], "consequent_ids": ["c4"]}
+    ]
+  }
 }
 ```
 
@@ -66,11 +167,104 @@ Output:
 {
   "canonical_text": "all philosophers are mortal; Socrates is a philosopher",
   "atomic_candidates": [
-    {"text": "all philosophers are mortal", "origin_spans": [[0, 27]]},
-    {"text": "Socrates is a philosopher", "origin_spans": [[32, 57]]}
+    {"text": "all philosophers are mortal", "origin_spans": [[0, 27]], "id": "c1", "modal_operator": null},
+    {"text": "Socrates is a philosopher", "origin_spans": [[32, 57]], "id": "c2", "modal_operator": null}
   ],
   "confidence": 0.92,
-  "structure_type": "conjunction"
+  "structure_type": "conjunction",
+  "structural_metadata": {
+    "relationships": [
+      {"type": "AND", "conjunct_ids": ["c1", "c2"]}
+    ]
+  }
+}
+```
+
+Input: "Ludwig Wittgenstein was an Austro-British philosopher who worked primarily in logic, philosophy of mathematics, philosophy of mind, and philosophy of language."
+Output:
+```json
+{
+  "canonical_text": "Ludwig Wittgenstein was an Austro-British philosopher; Ludwig Wittgenstein worked primarily in logic; Ludwig Wittgenstein worked primarily in philosophy of mathematics; Ludwig Wittgenstein worked primarily in philosophy of mind; Ludwig Wittgenstein worked primarily in philosophy of language",
+  "atomic_candidates": [
+    {"text": "Ludwig Wittgenstein was an Austro-British philosopher", "origin_spans": [[0, 53]], "id": "c1", "modal_operator": null},
+    {"text": "Ludwig Wittgenstein worked primarily in logic", "origin_spans": [[54, 85]], "id": "c2", "modal_operator": null},
+    {"text": "Ludwig Wittgenstein worked primarily in philosophy of mathematics", "origin_spans": [[87, 113]], "id": "c3", "modal_operator": null},
+    {"text": "Ludwig Wittgenstein worked primarily in philosophy of mind", "origin_spans": [[115, 133]], "id": "c4", "modal_operator": null},
+    {"text": "Ludwig Wittgenstein worked primarily in philosophy of language", "origin_spans": [[139, 162]], "id": "c5", "modal_operator": null}
+  ],
+  "confidence": 0.90,
+  "structure_type": "conjunction",
+  "structural_metadata": {
+    "relationships": [
+      {"type": "AND", "conjunct_ids": ["c1", "c2", "c3", "c4", "c5"]}
+    ]
+  }
+}
+```
+
+Input: "It is possible that I am tall and handsome."
+Output:
+```json
+{
+  "canonical_text": "possibly(I am tall and I am handsome)",
+  "atomic_candidates": [
+    {
+      "text": "I am tall and handsome",
+      "origin_spans": [[20, 42]],
+      "id": "m1",
+      "modal_operator": "POSSIBLE",
+      "modal_scope": {
+        "type": "AND",
+        "components": [
+          {"text": "I am tall", "id": "m1.1"},
+          {"text": "I am handsome", "id": "m1.2"}
+        ]
+      }
+    }
+  ],
+  "confidence": 0.95,
+  "structure_type": "modal",
+  "structural_metadata": {
+    "relationships": []
+  }
+}
+```
+
+Input: "If I am necessarily both tall and handsome, then it is not possible I remain a bachelor"
+Output:
+```json
+{
+  "canonical_text": "necessarily(I am tall and I am handsome) implies not_possible(I remain a bachelor)",
+  "atomic_candidates": [
+    {
+      "text": "I am tall and handsome",
+      "origin_spans": [[8, 41]],
+      "id": "m1",
+      "role": "antecedent",
+      "modal_operator": "NECESSARY",
+      "modal_scope": {
+        "type": "AND",
+        "components": [
+          {"text": "I am tall", "id": "m1.1"},
+          {"text": "I am handsome", "id": "m1.2"}
+        ]
+      }
+    },
+    {
+      "text": "I remain a bachelor",
+      "origin_spans": [[67, 86]],
+      "id": "c2",
+      "role": "consequent",
+      "modal_operator": "NOT_POSSIBLE"
+    }
+  ],
+  "confidence": 0.90,
+  "structure_type": "conditional",
+  "structural_metadata": {
+    "relationships": [
+      {"type": "IMPLIES", "antecedent_ids": ["m1"], "consequent_ids": ["c2"]}
+    ]
+  }
 }
 ```
 

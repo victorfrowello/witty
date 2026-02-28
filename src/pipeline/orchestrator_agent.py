@@ -309,15 +309,40 @@ class WittyPipelineAgent:
         if not results["concision"].get("success"):
             return results
         
-        # Stage 3: Enrichment (if enabled)
-        if options.retrieval_enabled:
+        # Stage 3: Enrichment - agent decides unless user opts out
+        # Priority: 1) User opted out with no_retrieval=True -> skip
+        #           2) User forced with retrieval_enabled=True -> enrich
+        #           3) Agent decides based on content analysis
+        should_enrich = False
+        enrichment_reason = None
+        
+        if getattr(options, 'no_retrieval', False):
+            # User explicitly opted out
+            should_enrich = False
+            enrichment_reason = "disabled_by_user"
+            logger.debug("Enrichment skipped: user set no_retrieval=True")
+        elif getattr(options, 'retrieval_enabled', False):
+            # User explicitly requested enrichment
+            should_enrich = True
+            enrichment_reason = "user_requested"
+            logger.debug("Enrichment enabled: user set retrieval_enabled=True")
+        else:
+            # Agent decides based on content
+            should_enrich = self._needs_enrichment(conc_result, results.get("preprocessing", {}).get("normalized_text", ""))
+            enrichment_reason = "agent_decision" if should_enrich else "not_needed"
+            if should_enrich:
+                logger.info("Agent decided enrichment would improve results")
+        
+        if should_enrich:
             enrich_result = self._invoke_tool("enrich", {
                 "concision_result": conc_result,
                 "retrieval_enabled": True
             })
             results["enrichment"] = json.loads(enrich_result)
+            results["enrichment"]["reason"] = enrichment_reason
             next_input = enrich_result
         else:
+            results["enrichment"] = {"skipped": True, "reason": enrichment_reason}
             next_input = conc_result
         
         # Stage 4: Modal Detection
@@ -387,6 +412,89 @@ class WittyPipelineAgent:
             
             return False
         except Exception:
+            return False
+    
+    def _needs_enrichment(self, result_json: str, original_text: str) -> bool:
+        """
+        Determine if the input would benefit from external retrieval/enrichment.
+        
+        The agent uses heuristics to decide when additional context would help:
+        1. Quantifiers over domains (e.g., "all mammals", "every prime number")
+        2. Proper nouns / named entities that may need grounding
+        3. Technical terms or domain-specific vocabulary
+        4. References to facts, dates, or verifiable claims
+        5. Underspecified entities ("the president", "that country")
+        
+        Args:
+            result_json: JSON string from concision stage
+            original_text: The original input text
+            
+        Returns:
+            True if enrichment would likely improve formalization quality
+        """
+        try:
+            text_lower = original_text.lower()
+            
+            # 1. Quantifiers over concrete domains (not just logical quantifiers)
+            domain_quantifiers = [
+                r'\ball\s+\w+s\b',  # "all mammals", "all numbers"
+                r'\bevery\s+\w+\b',  # "every person", "every element"
+                r'\bsome\s+\w+s\b',  # "some animals", "some cases"
+                r'\bno\s+\w+s?\b',   # "no exceptions", "no bird"
+            ]
+            import re
+            for pattern in domain_quantifiers:
+                if re.search(pattern, text_lower):
+                    logger.debug(f"Enrichment triggered: domain quantifier pattern '{pattern}'")
+                    return True
+            
+            # 2. Factual/verifiable claims (dates, statistics, comparisons)
+            factual_indicators = [
+                r'\b\d{4}\b',  # Years like 2024
+                r'\b\d+\s*%',  # Percentages
+                r'\baccording to\b',
+                r'\bstudies show\b',
+                r'\bresearch\b',
+                r'\bstatistic\w*\b',
+                r'\blargest\b|\bsmallest\b|\bfastest\b|\bmost\b',
+                r'\bcapital of\b',
+                r'\bpresident of\b',
+                r'\bfounder of\b',
+            ]
+            for pattern in factual_indicators:
+                if re.search(pattern, text_lower):
+                    logger.debug(f"Enrichment triggered: factual indicator '{pattern}'")
+                    return True
+            
+            # 3. Parse the concision result for entity-rich claims
+            data = json.loads(result_json)
+            claims = data.get("atomic_candidates", data.get("expanded_claims", []))
+            
+            # Check for proper nouns (capitalized words that aren't sentence starters)
+            for claim in claims:
+                claim_text = claim.get("text", "")
+                words = claim_text.split()
+                # Skip first word (might just be capitalized sentence start)
+                for word in words[1:]:
+                    if word and word[0].isupper() and word.isalpha() and len(word) > 2:
+                        logger.debug(f"Enrichment triggered: proper noun '{word}'")
+                        return True
+            
+            # 4. Underspecified references
+            underspecified = [
+                r'\bthe\s+(current|former|new|old)\s+\w+\b',
+                r'\bthat\s+(country|person|company|organization)\b',
+                r'\bthis\s+(year|month|week|day)\b',
+            ]
+            for pattern in underspecified:
+                if re.search(pattern, text_lower):
+                    logger.debug(f"Enrichment triggered: underspecified reference '{pattern}'")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.warning(f"Error in _needs_enrichment: {e}")
             return False
     
     def _build_formalization_result(
@@ -736,6 +844,8 @@ def formalize_with_agent(
     Convenience function to formalize using the agent orchestrator.
     
     Creates a WittyPipelineAgent and runs formalization on the input.
+    By default, creates an LLM adapter (Groq) for live formalization.
+    Pass options with reproducible_mode=True for deterministic behavior.
     
     Args:
         input_text: Natural language statement to formalize
@@ -749,5 +859,19 @@ def formalize_with_agent(
         >>> result = formalize_with_agent("If it rains then the match is cancelled.")
         >>> print(result.legend)
     """
-    agent = WittyPipelineAgent(model=model)
+    if options is None:
+        options = FormalizeOptions()
+    
+    # Create LLM adapter for live mode (not reproducible)
+    llm_adapter = None
+    if not getattr(options, 'reproducible_mode', False):
+        try:
+            from src.adapters.groq_adapter import GroqAdapter
+            model_name = getattr(options, 'llm_model', None) or "llama-3.3-70b-versatile"
+            llm_adapter = GroqAdapter(model=model_name)
+            logger.info(f"Live mode: Created Groq adapter with {model_name}")
+        except Exception as e:
+            logger.warning(f"Failed to create Groq adapter, falling back to deterministic: {e}")
+    
+    agent = WittyPipelineAgent(model=model, llm_adapter=llm_adapter)
     return agent.run(input_text, options)

@@ -101,20 +101,26 @@ class FormalizeOptions(BaseModel):
         retrieval_enabled: Whether to enable knowledge retrieval/enrichment
         top_k_symbolizations: Number of top symbolization candidates to keep
         llm_provider: Optional LLM provider identifier
+        llm_model: Specific LLM model to use (e.g., 'llama-3.3-70b-versatile')
         verbosity: Logging verbosity (integer or string like 'normal'/'debug')
         quantifier_reduction_detail: Enable detailed quantifier reduction logging
         allow_modal_advanced_cnf: Allow advanced modal CNF transformations
         privacy_mode: Privacy level ('default', 'strict', etc.)
         reproducible_mode: Use deterministic/cached adapters for reproducibility
+        live_mode: Enable live LLM integration (deprecated, use reproducible_mode=False)
+        no_retrieval: Opt out of automatic retrieval enrichment
     """
     retrieval_enabled: bool = False
     top_k_symbolizations: int = 1
     llm_provider: Optional[str] = None
+    llm_model: Optional[str] = None
     verbosity: Union[int, str] = 0
     quantifier_reduction_detail: bool = False
     allow_modal_advanced_cnf: bool = False
     privacy_mode: str = "default"
     reproducible_mode: bool = False
+    live_mode: bool = False  # Deprecated: use reproducible_mode=False instead
+    no_retrieval: bool = False
 
 
 class AtomicClaim(BaseModel):
@@ -129,12 +135,15 @@ class AtomicClaim(BaseModel):
         symbol: Formal symbol assigned to this claim (e.g., 'P1', 'Q2')
         origin_spans: Character spans in the original text this claim derives from
         modal_context: Optional modal context (necessity, possibility, etc.)
+        modal_scope: For compound modal statements, the internal structure
+                     (e.g., {"type": "AND", "components": [{"text": "...", "id": "m1.1"}, ...]})
         provenance: Optional provenance tracking for this claim
     """
     text: str
     symbol: Optional[str] = None
     origin_spans: List[Tuple[int, int]] = Field(default_factory=list)
     modal_context: Optional[str] = None
+    modal_scope: Optional[Dict[str, Any]] = None
     provenance: Optional[ProvenanceRecord] = None
 
 
@@ -344,12 +353,14 @@ class RetrievalResponse(BaseModel):
         total_results: Total number of results available
         request_id: Unique identifier for this retrieval request
         privacy_mode: Privacy mode used for this retrieval
+        metadata: Additional metadata (e.g., fallback tracking)
     """
     query: str
     sources: List[RetrievalSource] = Field(default_factory=list)
     total_results: int = 0
     request_id: str = ""
     privacy_mode: str = "default"
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
 class ExpandedClaim(BaseModel):
