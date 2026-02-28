@@ -148,7 +148,7 @@ def detect_modal(
     else:
         claims = []
     
-    for claim in claims:
+    for idx, claim in enumerate(claims):
         if not claim.text:
             continue
         
@@ -175,7 +175,12 @@ def detect_modal(
             
             if primary_type:
                 # Handle both ExpandedClaim (claim_id) and AtomicClaim (symbol)
-                claim_id = getattr(claim, 'claim_id', None) or getattr(claim, 'symbol', 'unknown')
+                # Need fallback chain since both could be None
+                claim_id = (
+                    getattr(claim, 'claim_id', None) or 
+                    getattr(claim, 'symbol', None) or 
+                    f"claim_{idx}"
+                )
                 modal_contexts.append(ModalContext(
                     claim_id=claim_id,
                     modal_type=primary_type,

@@ -1,4 +1,4 @@
-# Witty v0.3.0 — Epistemic Formalization Engine
+# Witty v0.5.0 — Epistemic Formalization Engine
 
 Witty converts plain‑English declarative statements and long‑form arguments into machine‑readable formalizations that expose the minimal atomic claims and the inferences required for the input to be true. This README is a concise, high-level primer on what the system produces, the data pipeline, where LLMs are used versus deterministic code, and how provenance and reproducibility are handled.
 
@@ -272,6 +272,21 @@ pytest tests/test_orchestrator.py -v
 
 ##  Status
 
+**Sprint 6 Complete (February 2026)**:
+- ✅ Agentic orchestrator using smolagents framework
+- ✅ MockToolCallingModel for deterministic testing
+- ✅ 8 pipeline tool wrappers (preprocess, concision, enrichment, modal, world, symbolize, cnf, validate)
+- ✅ WittyPipelineAgent with retry/fallback policy
+- ✅ Provenance tracking at tool invocation level
+- ✅ 489 passing tests (41 new agent tests)
+
+**Sprint 5 Complete (February 2026)**:
+- ✅ Context enrichment with retrieval adapters
+- ✅ LLM-driven world construction (world_construct_v1)
+- ✅ Modal detection (modal_detect_v1) with S5 frame default
+- ✅ Privacy modes (default, audit, strict) with redaction
+- ✅ 448 passing tests
+
 **Sprint 4 Complete (February 2026)**:
 - ✅ OpenAI-compatible adapter (works with OpenAI, Groq, Together AI, Azure)
 - ✅ Enhanced MockLLMAdapter with intelligent response generation
@@ -297,11 +312,10 @@ pytest tests/test_orchestrator.py -v
 
 **Sprint 1 Complete**: Core type system, mock adapter, and initial pipeline structure.
 
-**What's Next (Sprint 5)**:
-- Context enrichment with retrieval adapters
-- LLM-driven world construction (world_construct_v1)
-- Modal detection (modal_detect_v1)
-- Symbolization LLM path (symbolize_v1)
+**What's Next (Sprint 7)**:
+- Live LLM integration with Groq Llama 3.3 70B
+- Swap MockToolCallingModel for real LLM
+- End-to-end validation with live model
 
 This is an early-stage prototype currently under active development. Contributions, feedback, and questions are welcome.
 
