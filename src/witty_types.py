@@ -286,6 +286,7 @@ class FormalizationResult(BaseModel):
         warnings: Non-fatal warnings encountered during processing
         confidence: Overall confidence in the formalization result
         provenance: Complete provenance chain for all transformations
+        config_metadata: Configuration options used for this request (for reproducibility)
     """
     request_id: str
     original_text: str
@@ -301,3 +302,200 @@ class FormalizationResult(BaseModel):
     warnings: List[str] = Field(default_factory=list)
     confidence: float = Field(1.0, ge=0.0, le=1.0)
     provenance: List[ProvenanceRecord] = Field(default_factory=list)
+    config_metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+# =============================================================================
+# Sprint 5 Types: Enrichment, Retrieval, and Modal Detection
+# =============================================================================
+
+
+class RetrievalSource(BaseModel):
+    """
+    Represents a source document or snippet from retrieval.
+    
+    DesignSpec 6a.1: RetrievalAdapter interface returns RetrievalSource objects
+    with privacy redaction support.
+    
+    Attributes:
+        source_id: Unique identifier for this source
+        content: The retrieved text content (may be redacted)
+        score: Relevance score from retrieval (0.0-1.0)
+        redacted: Whether content has been redacted for privacy
+        metadata: Additional metadata about the source
+    """
+    source_id: str
+    content: str
+    score: float = Field(0.0, ge=0.0, le=1.0)
+    redacted: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RetrievalResponse(BaseModel):
+    """
+    Response from a retrieval adapter query.
+    
+    DesignSpec 6a.1: RetrievalAdapter.retrieve() returns RetrievalResponse
+    containing sources and query metadata.
+    
+    Attributes:
+        query: The original query text
+        sources: List of retrieved sources
+        total_results: Total number of results available
+        request_id: Unique identifier for this retrieval request
+        privacy_mode: Privacy mode used for this retrieval
+    """
+    query: str
+    sources: List[RetrievalSource] = Field(default_factory=list)
+    total_results: int = 0
+    request_id: str = ""
+    privacy_mode: str = "default"
+
+
+class ExpandedClaim(BaseModel):
+    """
+    A claim expanded with enrichment context.
+    
+    DesignSpec 6a.2: EnrichmentResult contains ExpandedClaims with
+    provenance tracking back to retrieval sources.
+    
+    Attributes:
+        claim_id: Unique identifier for this claim
+        text: The claim text
+        origin: Origin of this claim (input, retrieval, inference)
+        confidence: Confidence score (0.0-1.0)
+        source_ids: IDs of retrieval sources that contributed
+        origin_spans: Character spans in original text
+    """
+    claim_id: str
+    text: str
+    origin: str = "input"  # input | retrieval | inference
+    confidence: float = Field(1.0, ge=0.0, le=1.0)
+    source_ids: List[str] = Field(default_factory=list)
+    origin_spans: List[Tuple[int, int]] = Field(default_factory=list)
+
+
+class EnrichmentSource(BaseModel):
+    """
+    Metadata about an enrichment source used in context expansion.
+    
+    DesignSpec 6a.1: Track all external sources used for enrichment
+    with privacy redaction support.
+    
+    Attributes:
+        source_id: Unique identifier for this source
+        score: Relevance score (0.0-1.0)
+        redacted: Whether the source content was redacted
+        source_type: Type of source (retrieval, knowledge_base, inference)
+    """
+    source_id: str
+    score: float = Field(0.0, ge=0.0, le=1.0)
+    redacted: bool = False
+    source_type: str = "retrieval"
+
+
+class EnrichmentResult(BaseModel):
+    """
+    Result from the enrichment stage.
+    
+    DesignSpec 6a.2: Enrichment expands claims with external knowledge
+    and context, preparing for world construction.
+    
+    Attributes:
+        expanded_claims: List of claims with enrichment context
+        enrichment_sources: Sources used for enrichment
+        original_claim_count: Number of claims before enrichment
+        enriched_claim_count: Number of claims after enrichment
+        coherence_flags: Subset of ["complete", "consistent", "minimal", "underspecified", "contradictory"]
+        confidence: Overall confidence in enrichment
+        warnings: Warnings encountered during enrichment
+    """
+    expanded_claims: List[ExpandedClaim] = Field(default_factory=list)
+    enrichment_sources: List[EnrichmentSource] = Field(default_factory=list)
+    original_claim_count: int = 0
+    enriched_claim_count: int = 0
+    coherence_flags: List[str] = Field(default_factory=list)
+    confidence: float = Field(1.0, ge=0.0, le=1.0)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class ModalContext(BaseModel):
+    """
+    Modal context detected for a claim.
+    
+    DesignSpec 6a.2: Modal detection identifies necessity, possibility,
+    obligation, and permission operators.
+    
+    Attributes:
+        claim_id: ID of the claim this context applies to
+        modal_type: Type of modality (necessity, possibility, obligation, permission)
+        operator_text: The modal operator text from input
+        frame: Modal logic frame (S5, K, etc.)
+        confidence: Confidence in this detection
+    """
+    claim_id: str
+    modal_type: str  # necessity | possibility | obligation | permission
+    operator_text: str = ""
+    frame: str = "S5"
+    confidence: float = Field(1.0, ge=0.0, le=1.0)
+
+
+class ModalResult(BaseModel):
+    """
+    Result from modal detection.
+    
+    DesignSpec 6a.2: Modal detection identifies modal operators and
+    selects appropriate frame semantics.
+    
+    Attributes:
+        modal_contexts: List of detected modal contexts
+        frame_selection: Selected modal frame for the document
+        has_modality: Whether any modality was detected
+        confidence: Overall confidence in modal detection
+        warnings: Warnings encountered during detection
+    """
+    modal_contexts: List[ModalContext] = Field(default_factory=list)
+    frame_selection: str = "none"  # none | S5 | K | D | T
+    has_modality: bool = False
+    confidence: float = Field(1.0, ge=0.0, le=1.0)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class CNFClause(BaseModel):
+    """
+    A single clause in Conjunctive Normal Form.
+    
+    Used in CNFResult to represent individual clauses with their
+    constituent literals and provenance.
+    
+    Attributes:
+        clause_id: Unique identifier for this clause
+        literals: List of literals in this clause (disjunction)
+        clause_type: Type of clause (unit, disjunction, horn)
+        origin_claim_ids: IDs of claims this clause derives from
+    """
+    clause_id: str
+    literals: List[str] = Field(default_factory=list)
+    clause_type: str = "disjunction"  # unit | disjunction | horn
+    origin_claim_ids: List[str] = Field(default_factory=list)
+
+
+class CNFResult(BaseModel):
+    """
+    Result from CNF transformation.
+    
+    Contains the Conjunctive Normal Form representation of the
+    formalized input, broken into individual clauses.
+    
+    Attributes:
+        clauses: List of CNF clauses
+        original_formula: The formula before CNF transformation
+        transformation_steps: Steps taken to reach CNF
+        confidence: Confidence in the transformation
+        warnings: Warnings encountered during transformation
+    """
+    clauses: List[CNFClause] = Field(default_factory=list)
+    original_formula: str = ""
+    transformation_steps: List[str] = Field(default_factory=list)
+    confidence: float = Field(1.0, ge=0.0, le=1.0)
+    warnings: List[str] = Field(default_factory=list)

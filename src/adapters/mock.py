@@ -309,6 +309,32 @@ class MockLLMAdapter:
                 "confidence": default.get("confidence", 0.80),
             }
             return json.dumps(parsed_json), parsed_json
+            
+        elif template_id and template_id.startswith("ground_entity"):
+            # Entity grounding response
+            # Extract entity from prompt if possible
+            entity = "entity"
+            if 'entity "' in prompt.lower():
+                start = prompt.lower().find('entity "') + 8
+                end = prompt.find('"', start)
+                if end > start:
+                    entity = prompt[start:end]
+            
+            parsed_json = {
+                "grounding_claim": f"{entity} is an entity in the domain",
+                "entity_type": "CONCEPT",
+                "confidence": 0.85,
+            }
+            return json.dumps(parsed_json), parsed_json
+            
+        elif template_id and template_id.startswith("ground_quantifier"):
+            # Quantifier grounding response
+            parsed_json = {
+                "domain_restriction": "relevant entities",
+                "grounding_method": "llm_assisted",
+                "confidence": 0.85,
+            }
+            return json.dumps(parsed_json), parsed_json
         
         # Unknown template - return generic response
         return f"MOCK: {prompt}", None

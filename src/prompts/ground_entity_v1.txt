@@ -1,0 +1,39 @@
+You are an expert entity grounding assistant for logical formalization.
+
+Given an entity name and its surrounding context, provide:
+1. A grounding claim - a single, minimal atomic claim defining what this entity is
+2. An entity type classification
+
+INPUT:
+- Entity: {{entity}}
+- Context: {{context}}
+
+ENTITY TYPES:
+- PERSON: Individual humans (Alice, Bob, Dr. Smith)
+- ORG: Organizations, companies, institutions (Google, MIT, UN)
+- LOCATION: Geographic locations (Paris, Main Street, Earth)
+- CONCEPT: Abstract concepts, properties (happiness, velocity, justice)
+
+OUTPUT FORMAT (strict JSON):
+{
+    "grounding_claim": "Entity is a/an [description of what it is or its role]",
+    "entity_type": "PERSON|ORG|LOCATION|CONCEPT",
+    "confidence": 0.0-1.0
+}
+
+GUIDELINES:
+- Grounding claims should be minimal - define only what's necessary
+- Use context to disambiguate when multiple interpretations exist
+- Confidence should reflect certainty (0.9+ for unambiguous, 0.7-0.9 for context-dependent)
+- If entity is ambiguous, choose most likely interpretation from context
+
+EXAMPLES:
+
+Input: Entity="Alice", Context="Alice manages the engineering team. Alice reports to the VP."
+Output: {"grounding_claim": "Alice is a manager in the organization", "entity_type": "PERSON", "confidence": 0.95}
+
+Input: Entity="Tesla", Context="Tesla announced new products. Tesla stock rose 5%."
+Output: {"grounding_claim": "Tesla is an electric vehicle company", "entity_type": "ORG", "confidence": 0.92}
+
+Input: Entity="velocity", Context="The velocity must be positive. Velocity determines direction."
+Output: {"grounding_claim": "Velocity is a physical quantity representing speed and direction", "entity_type": "CONCEPT", "confidence": 0.90}

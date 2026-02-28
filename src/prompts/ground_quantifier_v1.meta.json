@@ -1,0 +1,22 @@
+{
+    "id": "ground_quantifier_v1",
+    "version": "1.0.0",
+    "description": "Quantifier grounding prompt for domain instantiation",
+    "author": "Victor Rowello",
+    "sprint": "5",
+    "input_schema": {
+        "claim": "string - The quantified statement",
+        "quantifier_type": "string - universal or existential",
+        "context": "string - Retrieved context for grounding"
+    },
+    "output_schema": {
+        "instances": "array - List of instance objects with text, label, confidence",
+        "reduction_rationale": "string - Explanation of instance selection"
+    },
+    "expected_tokens": {
+        "input": 300,
+        "output": 150
+    },
+    "temperature": 0.0,
+    "spec_reference": "DesignSpec 6b.1, 6b.4"
+}

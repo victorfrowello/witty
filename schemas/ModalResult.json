@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://witty.example.com/schemas/ModalResult.json",
+  "title": "ModalResult",
+  "description": "Result from modal detection. DesignSpec 6a.2.",
+  "type": "object",
+  "properties": {
+    "modal_contexts": {
+      "type": "array",
+      "description": "List of detected modal contexts",
+      "items": {
+        "type": "object",
+        "properties": {
+          "claim_id": {
+            "type": "string",
+            "description": "ID of the claim this context applies to"
+          },
+          "modal_type": {
+            "type": "string",
+            "enum": ["necessity", "possibility", "obligation", "permission"],
+            "description": "Type of modality"
+          },
+          "operator_text": {
+            "type": "string",
+            "description": "The modal operator text from input"
+          },
+          "frame": {
+            "type": "string",
+            "enum": ["S5", "K", "D", "T", "S4"],
+            "description": "Modal logic frame"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Confidence in this detection"
+          }
+        },
+        "required": ["claim_id", "modal_type"]
+      }
+    },
+    "frame_selection": {
+      "type": "string",
+      "enum": ["none", "S5", "K", "D", "T", "S4"],
+      "description": "Selected modal frame for the document"
+    },
+    "has_modality": {
+      "type": "boolean",
+      "description": "Whether any modality was detected"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Overall confidence in modal detection"
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Warnings encountered during detection"
+    }
+  },
+  "required": ["modal_contexts", "frame_selection"]
+}

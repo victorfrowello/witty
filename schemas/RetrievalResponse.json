@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://witty.example.com/schemas/RetrievalResponse.json",
+  "title": "RetrievalResponse",
+  "description": "Response from a retrieval adapter query. DesignSpec 6a.1.",
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "The original query text"
+    },
+    "sources": {
+      "type": "array",
+      "description": "List of retrieved sources",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "description": "Unique identifier for this source"
+          },
+          "content": {
+            "type": "string",
+            "description": "The retrieved text content (may be redacted)"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Relevance score from retrieval"
+          },
+          "redacted": {
+            "type": "boolean",
+            "description": "Whether content has been redacted for privacy"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional metadata about the source"
+          }
+        },
+        "required": ["source_id", "content"]
+      }
+    },
+    "total_results": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of results available"
+    },
+    "request_id": {
+      "type": "string",
+      "description": "Unique identifier for this retrieval request"
+    },
+    "privacy_mode": {
+      "type": "string",
+      "enum": ["default", "strict", "audit"],
+      "description": "Privacy mode used for this retrieval"
+    }
+  },
+  "required": ["query", "sources"]
+}

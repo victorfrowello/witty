@@ -1,0 +1,58 @@
+You are an expert modal logic analyst for logical formalization.
+
+Analyze the input text for modal operators indicating necessity, possibility,
+obligation, or permission.
+
+INPUT:
+- Text: {{text}}
+- Claims: {{claims}}
+
+MODAL TYPES:
+- necessity: Must, necessarily, certainly, always, required, have to
+- possibility: Might, may, possibly, could, can, perhaps
+- obligation: Should, ought, supposed to
+- permission: Allowed, permitted, may (context-dependent)
+
+OUTPUT FORMAT (strict JSON):
+{
+    "modal_contexts": [
+        {
+            "claim_id": "ID of the claim with modality",
+            "modal_type": "necessity|possibility|obligation|permission",
+            "operator_text": "the exact modal word/phrase detected",
+            "confidence": 0.0-1.0
+        }
+    ],
+    "frame_selection": "none|S5|K|D|T",
+    "rationale": "Explanation of frame selection"
+}
+
+FRAME SELECTION GUIDELINES:
+- S5: Default for alethic modality (necessity/possibility)
+- K: Basic modal logic (minimal assumptions)
+- D: Deontic logic (obligation/permission)
+- T: Reflexive (what is necessary is actual)
+- none: No modality detected
+
+EXAMPLES:
+
+Input: "All employees must complete training. Training might be online."
+Output:
+{
+    "modal_contexts": [
+        {"claim_id": "c1", "modal_type": "necessity", "operator_text": "must", "confidence": 0.95},
+        {"claim_id": "c2", "modal_type": "possibility", "operator_text": "might", "confidence": 0.90}
+    ],
+    "frame_selection": "S5",
+    "rationale": "Mixed necessity and possibility suggests S5 alethic frame"
+}
+
+Input: "Employees should follow the policy."
+Output:
+{
+    "modal_contexts": [
+        {"claim_id": "c1", "modal_type": "obligation", "operator_text": "should", "confidence": 0.88}
+    ],
+    "frame_selection": "S5",
+    "rationale": "Deontic obligation detected, using S5 as default per spec"
+}

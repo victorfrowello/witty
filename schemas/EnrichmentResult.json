@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://witty.example.com/schemas/EnrichmentResult.json",
+  "title": "EnrichmentResult",
+  "description": "Result from the enrichment stage. DesignSpec 6a.2.",
+  "type": "object",
+  "properties": {
+    "expanded_claims": {
+      "type": "array",
+      "description": "List of claims with enrichment context",
+      "items": {
+        "type": "object",
+        "properties": {
+          "claim_id": {
+            "type": "string",
+            "description": "Unique identifier for this claim"
+          },
+          "text": {
+            "type": "string",
+            "description": "The claim text"
+          },
+          "origin": {
+            "type": "string",
+            "enum": ["input", "retrieval", "inference"],
+            "description": "Origin of this claim"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Confidence score"
+          },
+          "source_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "IDs of retrieval sources that contributed"
+          },
+          "origin_spans": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "integer" },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "description": "Character spans in original text"
+          }
+        },
+        "required": ["claim_id", "text"]
+      }
+    },
+    "enrichment_sources": {
+      "type": "array",
+      "description": "Sources used for enrichment",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "description": "Unique identifier for this source"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Relevance score"
+          },
+          "redacted": {
+            "type": "boolean",
+            "description": "Whether the source content was redacted"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": ["retrieval", "knowledge_base", "inference"],
+            "description": "Type of source"
+          }
+        },
+        "required": ["source_id"]
+      }
+    },
+    "original_claim_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of claims before enrichment"
+    },
+    "enriched_claim_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of claims after enrichment"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Overall confidence in enrichment"
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Warnings encountered during enrichment"
+    }
+  },
+  "required": ["expanded_claims"]
+}

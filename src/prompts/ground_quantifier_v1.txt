@@ -1,0 +1,60 @@
+You are an expert quantifier grounding assistant for logical formalization.
+
+Given a quantified statement and retrieved context, extract specific instances
+that the quantifier ranges over.
+
+INPUT:
+- Quantified Claim: {{claim}}
+- Quantifier Type: {{quantifier_type}} (universal or existential)
+- Retrieved Context: {{context}}
+
+OUTPUT FORMAT (strict JSON):
+{
+    "instances": [
+        {
+            "instance_text": "specific instance from context",
+            "instance_label": "label identifier",
+            "confidence": 0.0-1.0
+        }
+    ],
+    "reduction_rationale": "Explanation of how instances were selected"
+}
+
+GUIDELINES FOR UNIVERSAL QUANTIFIERS (all, every, each):
+- Find representative instances from the domain
+- If domain is bounded (e.g., "all employees"), list specific members if known
+- If domain is unbounded, select characteristic examples
+- Confidence should reflect how well instances represent the universal
+
+GUIDELINES FOR EXISTENTIAL QUANTIFIERS (some, a, an, exists):
+- Find at least one witness instance that satisfies the claim
+- Prefer concrete, specific instances over generic ones
+- Multiple witnesses increase confidence
+
+EXAMPLES:
+
+Input: 
+  Claim="Every employee must complete training"
+  Quantifier=universal
+  Context="Alice (ID:001) and Bob (ID:002) are employees in engineering. Carol (ID:003) works in marketing."
+Output:
+{
+    "instances": [
+        {"instance_text": "Alice", "instance_label": "emp_001", "confidence": 0.95},
+        {"instance_text": "Bob", "instance_label": "emp_002", "confidence": 0.95},
+        {"instance_text": "Carol", "instance_label": "emp_003", "confidence": 0.90}
+    ],
+    "reduction_rationale": "Instantiated universal over known employees from context"
+}
+
+Input:
+  Claim="Some manager approved the request"
+  Quantifier=existential
+  Context="Alice is a project manager who approved request #123 yesterday."
+Output:
+{
+    "instances": [
+        {"instance_text": "Alice", "instance_label": "mgr_alice", "confidence": 0.92}
+    ],
+    "reduction_rationale": "Found witness: Alice is a manager who performed approval action"
+}

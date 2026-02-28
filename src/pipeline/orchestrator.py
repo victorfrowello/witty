@@ -343,6 +343,9 @@ def assemble_output(
     # Aggregate provenance records from all stages
     provenance = [provenance_record]
     
+    # Capture config metadata for reproducibility (DevPlan Sprint 3 requirement)
+    config_metadata = ctx.options.model_dump() if hasattr(ctx.options, 'model_dump') else {}
+    
     return FormalizationResult(
         request_id=ctx.request_id,
         original_text=raw_text,
@@ -354,7 +357,8 @@ def assemble_output(
         cnf=cnf,
         cnf_clauses=cnf_clauses,
         confidence=1.0,
-        provenance=provenance
+        provenance=provenance,
+        config_metadata=config_metadata
     )
 
 
@@ -618,6 +622,7 @@ def formalize_statement(
     
     # Build final FormalizationResult
     # Convert nested Pydantic models to dicts for proper validation
+    # Include config_metadata for reproducibility (DevPlan Sprint 3 requirement)
     result = FormalizationResult.model_validate({
         "request_id": request_id,
         "original_text": input_text,
@@ -630,7 +635,8 @@ def formalize_statement(
         "cnf_clauses": cnf_clauses,
         "confidence": overall_confidence,
         "provenance": [prov.model_dump() for prov in all_provenance],
-        "warnings": all_warnings
+        "warnings": all_warnings,
+        "config_metadata": options.model_dump()
     })
     
     # Ensure we return the validated Pydantic instance, not a dict

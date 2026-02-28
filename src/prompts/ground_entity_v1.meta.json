@@ -1,0 +1,22 @@
+{
+    "id": "ground_entity_v1",
+    "version": "1.0.0",
+    "description": "Entity grounding prompt for LLM-assisted world construction",
+    "author": "Victor Rowello",
+    "sprint": "5",
+    "input_schema": {
+        "entity": "string - The entity text to ground",
+        "context": "string - Surrounding context for disambiguation"
+    },
+    "output_schema": {
+        "grounding_claim": "string - Minimal atomic claim defining the entity",
+        "entity_type": "enum - PERSON|ORG|LOCATION|CONCEPT",
+        "confidence": "number - 0.0 to 1.0 confidence score"
+    },
+    "expected_tokens": {
+        "input": 150,
+        "output": 50
+    },
+    "temperature": 0.0,
+    "spec_reference": "DesignSpec 6b.4"
+}

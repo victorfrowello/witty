@@ -66,6 +66,12 @@
       "type": "array",
       "items": { "$ref": "ProvenanceRecord.json" },
       "default": []
+    },
+    "config_metadata": {
+      "type": "object",
+      "description": "Configuration options used for this formalization request (for reproducibility)",
+      "additionalProperties": true,
+      "default": {}
     }
   },
   "required": ["request_id", "original_text", "canonical_text", "atomic_claims"]
